@@ -1,0 +1,225 @@
+{
+  "schema": "so101-decision-log/1",
+  "session": "2026-09-12, SO-101 follower pick-and-place (brick -> tin), Abderrehmen Gharsallah",
+  "field_legend": {
+    "objective": "what the step was trying to achieve",
+    "inputs": "observations and data used",
+    "constraints": "requirements and safety considerations",
+    "decision": "high-level rationale",
+    "action": "what was actually done",
+    "alternatives": "options considered and why rejected",
+    "expected_outcome": "success criteria",
+    "result": "what happened (for hindsight)"
+  },
+  "decisions": [
+    {
+      "id": "D01", "phase": "discovery",
+      "objective": "Inventory the hardware and software before touching the arm.",
+      "inputs": "Connected repo folder; lerobot 0.6.2 in a uv venv; the sandbox shell showed no USB devices (isolated Linux VM on the Mac).",
+      "constraints": "No direct USB or serial access from the agent sandbox; nothing may move yet.",
+      "decision": "Have the user run a scan script in a macOS Terminal that writes serial ports, USB tree, camera list, calibration files and camera snapshots into the repo, which the agent can read.",
+      "action": "Wrote outputs/env_scan/scan_hardware.sh; user ran it; report parsed.",
+      "alternatives": "Ask the user to type device names manually (error-prone); attempt USB from the sandbox (impossible).",
+      "expected_outcome": "Serial port, camera indices and calibration state known without any motion.",
+      "result": "Port /dev/cu.usbmodem5A460836731; cameras: index 0 top, 1 wrist, 2 FaceTime, 3 OBS virtual; calibration my_follower exists (Sept 6)."
+    },
+    {
+      "id": "D02", "phase": "architecture",
+      "objective": "Control the arm in real time from the agent despite having no hardware access.",
+      "inputs": "Shared repo folder is readable/writable by both sides; lerobot SOFollower API (send_action, get_observation).",
+      "constraints": "Slow, non-brusque motion; hard joint limits; emergency stop must be independent of the agent; the daemon must be the only bus owner.",
+      "decision": "A file-based bridge daemon owns the arm: agent writes JSON goals, daemon interpolates at a capped rate, clamps to limits, streams state.json and camera snapshots.",
+      "action": "Wrote outputs/bridge/bridge.py (v1): 30 Hz loop, rate-limited interpolation (default 12 deg/s, max 30), calibration-derived soft limits with 3 deg margin, motor Acceleration=15 and Goal_Velocity=300 caps, lerobot max_relative_target=5 as second guard, ESTOP file, torque kept on at Ctrl-C.",
+      "alternatives": "Direct lerobot CLI teleop (needs a leader arm, none present); scripting one-off Python moves per step (no persistent guards, slower loop).",
+      "expected_outcome": "Any command, even a wrong one, results in a slow bounded move; user can freeze the arm at any moment.",
+      "result": "Worked; became the platform for everything after."
+    },
+    {
+      "id": "D03", "phase": "connection",
+      "objective": "Recover from a Feetech bus error ('no status packet' writing Lock on motor 2) during connect.",
+      "inputs": "Handshake pinged all motors; failure occurred in torque re-enable with zero retries.",
+      "constraints": "Must not leave torque half-enabled; must distinguish flakiness from a hardware fault.",
+      "decision": "Treat as known Feetech packet loss: retry the connect sequence up to 5 times and use num_retry on setup writes; escalate to hardware check only if all attempts fail.",
+      "action": "Patched bridge with a connect retry loop and enable_torque(num_retry=5).",
+      "alternatives": "Ask user to re-seat cables immediately (premature); lower baud (unnecessary).",
+      "expected_outcome": "Connect succeeds on retry; identical failure 5x would indicate cabling/power.",
+      "result": "Connected on the first retry."
+    },
+    {
+      "id": "D04", "phase": "bug-fix",
+      "objective": "Stop an unintended 2-3 deg drift at startup.",
+      "inputs": "Rest pose (lift -45.7, elbow 83.2) lies just outside the 3 deg-margin limits; hold command was being clamped, pulling joints toward the limits.",
+      "constraints": "A hold must never move the arm.",
+      "decision": "Apply limits only to received goals, never to the hold pose.",
+      "action": "Removed the clamp from the hold/interpolation path; restart.",
+      "alternatives": "Widen margins (would hide the logic error).",
+      "expected_outcome": "Startup and hold produce zero motion.",
+      "result": "Confirmed."
+    },
+    {
+      "id": "D05", "phase": "first-motion",
+      "objective": "Prove the command chain and speed limiting with zero risk.",
+      "inputs": "Arm at rest; wrist_roll changes nothing about the gripper's position in space.",
+      "constraints": "First motion must be harmless and observable.",
+      "decision": "Move only wrist_roll +10 deg at 8 deg/s and back.",
+      "action": "Sent the goal; measured ~1.3 s for 10 deg.",
+      "alternatives": "Start with shoulder/elbow (would change position before the chain was validated).",
+      "expected_outcome": "Requested rate observed, no other joint moves.",
+      "result": "Exactly as expected."
+    },
+    {
+      "id": "D06", "phase": "diagnosis",
+      "objective": "Understand why the elbow ignored goals while other joints tracked.",
+      "inputs": "Registers identical across motors; Goal_Position accepted; Present_Load only ~18% at 43 ticks of error; user confirmed nothing mechanically blocking.",
+      "constraints": "No forcing; test hypotheses one at a time with reversible register writes.",
+      "decision": "Rule out the position-limit hypothesis (widen Max_Position_Limit: no effect), then conclude lerobot's P=16 gain is too weak for small steps against gravity and raise the gain.",
+      "action": "Wrote P_Coefficient 32 (later 48) to the elbow, 32 to other arm joints; baked into bridge startup.",
+      "alternatives": "Larger commanded errors (causes jerks when the motor finally moves); re-calibration (would invalidate all recorded poses).",
+      "expected_outcome": "Elbow follows goals within ~2 deg.",
+      "result": "Moved immediately at P=32; ~2 deg residual sag; 1.5 deg at P=48."
+    },
+    {
+      "id": "D07", "phase": "approach (manual)",
+      "objective": "Bring the gripper above the brick looking straight down.",
+      "inputs": "Wrist camera view; discovered signs: lift+ = down/back, elbow- = forward/up, wrist- = view forward, pan+ = scene left.",
+      "constraints": "Steps <= 6 deg at 3-5 deg/s; inspect both cameras after each step.",
+      "decision": "Learn each joint's effect from one small test move each, then compose moves.",
+      "action": "Sequence of single/dual-joint relative steps; reached READY (lift 0, elbow 70.5, wrist 37.5) with the brick centred.",
+      "alternatives": "Compute inverse kinematics up front (no reliable link/offset data for this calibration).",
+      "expected_outcome": "Brick centred between the jaws in the wrist image.",
+      "result": "Achieved; pan alignment learned as ~50 px per 3 deg at that height."
+    },
+    {
+      "id": "D08", "phase": "incident",
+      "objective": "Descend to grasp height.",
+      "inputs": "Brick apparent size in the wrist image as a height proxy; a 12 deg elbow/wrist step near the table.",
+      "constraints": "Never press into the table.",
+      "decision": "(Mistaken) trust the image-size height estimate and take a larger step to speed up.",
+      "action": "Sent elbow +12 / wrist -12; gripper reached the table and kept pressing; user hit Ctrl-C.",
+      "alternatives": "Smaller steps with user confirmation of height (adopted afterwards).",
+      "expected_outcome": "Tips a few cm above the brick.",
+      "result": "FAILURE: table contact. Lessons: image size is not a reliable height cue near the surface; position lag and motor load do not reveal downward pushing (gravity-assisted)."
+    },
+    {
+      "id": "D09", "phase": "safety",
+      "objective": "Give the user instant stop controls and add automatic contact guards.",
+      "inputs": "User request for quick stop buttons; incident D08.",
+      "constraints": "Stop must work even if the agent is unresponsive; guards must not depend on the camera.",
+      "decision": "Add double-clickable STOP/RESUME/RELEASE .command files (ESTOP file mechanism), a stall guard (lag > 4 deg for 0.7 s), a per-joint load guard, a 12 deg step cap, and require user confirmation for each descent step.",
+      "action": "Implemented; restart without interrupting torque (skipped lerobot configure()).",
+      "alternatives": "Rely on lerobot's max_relative_target alone (does not detect contact).",
+      "expected_outcome": "Any resistance freezes the arm; user can freeze it in one click.",
+      "result": "Guards work for lateral/upward resistance; downward pushing later proved undetectable this way (see D15)."
+    },
+    {
+      "id": "D10", "phase": "grasp (manual)",
+      "objective": "Close the gripper on the brick.",
+      "inputs": "User confirmed jaw tips beside the brick near the table; wrist image showed the brick between the jaws.",
+      "constraints": "Gripper torque capped at 50%; do not crush.",
+      "decision": "Command gripper to 10 at 15 units/s and accept the stall position as the grasp indicator.",
+      "action": "Gripper stalled at 20.4 with ~27% load.",
+      "alternatives": "Close to a computed width (unknown calibration of gripper units).",
+      "expected_outcome": "Stall between 15 and 30 = brick held.",
+      "result": "Held; 20.4 became the reference value for grasp verification."
+    },
+    {
+      "id": "D11", "phase": "carry and drop (manual)",
+      "objective": "Lift the brick above the tin rim and release it inside.",
+      "inputs": "Top camera for position over the tin; user directions ('4 cm forward', 'slightly right').",
+      "constraints": "Clear the ~5.5 cm rim; the wrist camera's view is offset from the jaws, so trust the top camera and the user for XY.",
+      "decision": "Lift with shoulder_lift -10 (twice), move with pan, then adjust with elbow-/lift+ pairs for level forward motion; ask the user to confirm before opening.",
+      "action": "Reached pan 6.8 / lift 26.5 / elbow 47.7 / wrist 5; opened gripper; brick landed in the tin.",
+      "alternatives": "Vision-guided drop using the wrist camera alone (parallax made it misleading).",
+      "expected_outcome": "Brick visible inside the tin in the wrist image.",
+      "result": "SUCCESS (first pick-and-place, human-in-the-loop). The load-guard threshold tripped once on normal elbow gravity load and was made per-joint."
+    },
+    {
+      "id": "D12", "phase": "automation v2",
+      "objective": "Provide a live stream and a one-button autonomous routine.",
+      "inputs": "All poses from the manual run; HSV analysis of saved frames for the yellow brick.",
+      "constraints": "Same guards for every control path; stream must not add load to the control loop.",
+      "decision": "Add an HTTP dashboard (MJPEG of both cameras with detection overlay, state, STOP/RESUME/HOLD/AUTO/ABORT/RELEASE) and a routine that replays waypoints with a wrist-camera pan servo and an image-size stop criterion.",
+      "action": "bridge.py v2 deployed.",
+      "alternatives": "Pure waypoint replay without vision (brick position had already changed by ~4 cm).",
+      "expected_outcome": "User can watch live and start/stop the routine; routine reproduces the manual run.",
+      "result": "Two failures: fragmented detection in dim light (fixed by merging blobs, lower gates) and fixed waypoints unable to reach a farther brick (led to D14)."
+    },
+    {
+      "id": "D13", "phase": "teaching tools",
+      "objective": "Let the user demonstrate motions and define poses instead of the agent guessing.",
+      "inputs": "User request for joint controls and real-time saving of moves.",
+      "constraints": "Same limits and guards apply to manual jogging; free-drive must be explicit and confirmed.",
+      "decision": "Add per-joint sliders/step buttons, REC (10 Hz jsonl), named waypoints with Go, FREE-DRIVE/ENGAGE, GO TO REST, configurable rest pose (rest.json), and limits.json 'extend' to widen a joint range with matching motor register updates.",
+      "action": "Implemented; shoulder_lift range widened to [-47, 98] after the user measured 101 deg by hand; user saved a new rest pose.",
+      "alternatives": "Re-run lerobot calibration to widen the sweep (would shift all joint zeros and invalidate recorded poses).",
+      "expected_outcome": "User can jog, record and define poses; the arm can reach farther forward.",
+      "result": "Used successfully; the extended shoulder range was essential for the later autonomous grasps."
+    },
+    {
+      "id": "D14", "phase": "automation v3",
+      "objective": "Make the approach adaptive to the brick's position.",
+      "inputs": "Wrist detection (x, y, size); learned joint effects.",
+      "constraints": "Small steps, guards active, detections may drop out for a frame.",
+      "decision": "Replace fixed descent waypoints with a visual-servo loop: pan <- brick x, elbow <- brick y (reach), shoulder <- height, wrist compensating to keep looking down; wait up to 2 s for detections.",
+      "action": "Deployed v3; ran under agent supervision.",
+      "alternatives": "User demonstration replay only (does not generalise to a moved brick).",
+      "expected_outcome": "Brick centred and at grasp size regardless of start position.",
+      "result": "Alignment converged, but the height cue (image size) collapsed when the close-up brick washed out; the loop kept descending and touched the table; user pressed STOP (see D15)."
+    },
+    {
+      "id": "D15", "phase": "floor model",
+      "objective": "Know the fingertip height from joint angles, independent of the camera.",
+      "inputs": "User proposal to teach table-contact poses; 5 contact poses provided by free-drive plus 2 observed contacts; SO-101 link lengths.",
+      "constraints": "Guard must never let goals go below the table; model must be honest about extrapolation.",
+      "decision": "Fit a planar 3-link kinematic chain (joint offsets, axis signs, shoulder height) so all taught contacts have height 0; use it to clamp goals (>= 8 mm), freeze on negative height, and drive the descent to a 1 cm target. Offline tests showed a measured shoulder height makes the fit exact; without it the model is accurate near the table but not in the folded region.",
+      "action": "Implemented FloorModel, Mark-contact button with contact height, floor_config.json anchor; fit rms 1.4 mm on 7 points.",
+      "alternatives": "Surface regression contact_lift = f(elbow, wrist) (poor extrapolation); force sensing (not available; loads are uninformative when pushing down).",
+      "expected_outcome": "Descent stops at ~1 cm predicted tip height; no table contact.",
+      "result": "Both subsequent autonomous runs stopped at 1.3-1.4 cm and grasped."
+    },
+    {
+      "id": "D16", "phase": "vision hardening",
+      "objective": "Keep the brick detected at all distances and lighting.",
+      "inputs": "HSV samples: brick hue 17-24, saturation 45-145 (drops when close/washed out), table saturation <= 33, tin label orange hue ~15 ring-shaped.",
+      "constraints": "Never let a detection artefact drive a motion decision toward the table.",
+      "decision": "Gate hue 14-40, sat >= 40, val >= 80; open(5)+close(21) to merge stud columns; solidity/fill filters; treat a > 40% size collapse as a bad reading; wait for detections at routine start.",
+      "action": "Implemented in v3.1-3.3.",
+      "alternatives": "Fixed high saturation gate (fragmented the brick); learned detector (unnecessary for one known object).",
+      "expected_outcome": "Whole brick boxed in both views; size cue used only as a sanity check.",
+      "result": "No detection-caused failures in the final two runs."
+    },
+    {
+      "id": "D17", "phase": "autonomous runs",
+      "objective": "Pick the brick and place it in the tin with no human input.",
+      "inputs": "Floor model, visual servo, gripper stall check, proven carry/drop/retreat poses, configured rest pose.",
+      "constraints": "4 deg/s near objects; abort and freeze on any guard, lost brick, missed grasp; 1 s pause before release for a human STOP.",
+      "decision": "Run the routine end to end under agent log supervision.",
+      "action": "Run 1 (18:27): servo 9 iterations, grasp at 1.3 cm, size 351 px, stall 20.4, released, rest. Run 2 (18:31) from a different brick position: 10 iterations, 1.4 cm, 367 px, stall 20.4, released, rest.",
+      "alternatives": "Continue human-in-the-loop (already validated; goal was autonomy).",
+      "expected_outcome": "Log shows 'AUTO: done'; wrist image shows the brick inside the tin.",
+      "result": "SUCCESS twice."
+    },
+    {
+      "id": "D18", "phase": "documentation",
+      "objective": "Preserve everything needed for a smaller model or a person to repeat this safely.",
+      "inputs": "Whole session: quirks, conventions, thresholds, poses, run outcomes.",
+      "constraints": "Literal, step-by-step; machine-readable numbers; failure -> remedy mapping.",
+      "decision": "Write LEARNINGS.md (why), README.md (how, schemas, procedures, remedies), metadata.json (all numbers), this decision log, and propose a reusable skill.",
+      "action": "Files written to outputs/bridge/ on the Mac.",
+      "alternatives": "Rely on the chat transcript (not accessible to other sessions or models).",
+      "expected_outcome": "A new operator can start the bridge, run AUTO PICK and recover from every known failure without rediscovery.",
+      "result": "Delivered; note outputs/ is git-ignored (user to decide on tracking)."
+    }
+  ],
+  "cross_cutting_lessons": [
+    "Validate the command chain with a harmless joint before any positional move.",
+    "Learn each joint's sign with a single small step and a camera check; write the conventions down.",
+    "Image-based height estimates are unreliable near the surface; use a geometric model anchored by taught contacts (and a measured shoulder height).",
+    "Motor load and position lag do not reveal downward pushing on a gravity-assisted axis.",
+    "Detection dropouts are normal: wait/retry before declaring an object lost; treat abrupt size collapses as errors.",
+    "Servo gains from lerobot defaults (P=16) can be too weak for small smooth steps; verify tracking before trusting 'reached'.",
+    "Never interrupt torque on reconnect while holding an object; skip library configure() steps that do.",
+    "Every control path (human, agent, routine) must share the same limits and guards.",
+    "Keep the human in the loop with one-click stop and confirmations for the first instance of any risky move; automate only what has been demonstrated safe."
+  ]
+}

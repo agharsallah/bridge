@@ -1,0 +1,23 @@
+# Runtime state produced by bridge.py
+ESTOP
+state.json
+bridge.log
+cmd/*
+done/*
+recordings/*
+!cmd/.gitkeep
+!done/.gitkeep
+!recordings/.gitkeep
+top.jpg
+wrist.jpg
+
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
