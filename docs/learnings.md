@@ -3,7 +3,7 @@
 Setup: MacBook Pro (Apple Silicon), lerobot 0.6.2 (uv venv, Python 3.12), SO-101 follower on
 `/dev/cu.usbmodem5A460836731`, calibration id `my_follower`, cameras: OpenCV index 0 = overhead ("top"),
 index 1 = gripper ("wrist"), both Innomaker U20CAM 1080p (indices can swap after re-plugging: check the
-dashboard). Bridge: `uv run python bridge.py` from this directory, dashboard http://localhost:8765.
+dashboard). Bridge: `uv run so101-bridge` from the repository root, dashboard http://localhost:8765.
 
 ## Result
 First fully autonomous pick-and-place succeeded at 18:27 (AUTO PICK): visual servo to the brick, descent by
@@ -63,4 +63,4 @@ run without a fitted model.
 3. AUTO PICK. Aborts (and freezes) on: lost brick, stall, load, floor freeze, ESTOP, missed grasp.
 4. GO TO REST when done; RELEASE only with the arm resting on the table.
 Teach tools: joint buttons/sliders, REC (10 Hz jsonl in recordings/), Save waypoint, Mark contact (floor).
-Files: bridge.py (v3.3), limits.json, rest.json, floor_points.json, waypoints.json, bridge.log.
+Files: src/so101_bridge/ (v3.3), config/{limits,rest,floor_points,waypoints}.json, var/bridge.log.

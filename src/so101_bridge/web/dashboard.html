@@ -1,0 +1,53 @@
+<style>body{font-family:system-ui;background:#111;color:#eee;margin:0;padding:12px}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row img{width:48%;min-width:320px;background:#000;border-radius:6px}
+button{font-size:16px;padding:10px 14px;margin:3px;border:0;border-radius:8px;color:#fff;cursor:pointer;background:#444}
+#stop{background:#c0392b;font-size:26px;padding:18px 34px}#resume{background:#27ae60}#hold{background:#7f8c8d}
+#auto{background:#2980b9}#abort{background:#8e44ad}#release{background:#d35400}#engage{background:#16a085}
+#rest{background:#2c3e50}#rec{background:#c0392b}#rec.on{background:#e74c3c;animation:b 1s infinite}@keyframes b{50%{opacity:.5}}
+table{border-collapse:collapse}td{padding:4px 8px}input[type=range]{width:260px}.small{font-size:13px;color:#aaa}
+pre{background:#1b1b1b;padding:8px;border-radius:6px;font-size:12px;max-height:260px;overflow:auto}
+.card{background:#1b1b1b;border-radius:8px;padding:10px;margin:8px 0}</style>
+<h2>SO-101 follower — live <span id=banner style="display:none;background:#c0392b;padding:6px 14px;border-radius:8px;margin-left:16px;font-size:18px">ESTOP ACTIVE — all commands ignored — press RESUME</span></h2>
+<div><button id=stop onclick="c('stop')">STOP</button><button id=resume onclick="c('resume')">RESUME</button>
+<button id=hold onclick="c('hold')">HOLD</button><button id=auto onclick="c('auto')">AUTO PICK</button>
+<button id=abort onclick="c('abort')">ABORT</button><button id=rest onclick="c('rest')">GO TO REST</button><button onclick="if(confirm('Save the CURRENT pose as the rest position?'))c('rest_save')">Save as REST</button>
+<button id=release onclick="if(confirm('Torque OFF (free-drive). Hold the arm — it will sag under gravity. Continue?'))c('release')">FREE-DRIVE (torque off)</button>
+<button id=engage onclick="c('engage')">ENGAGE (torque on, hold)</button></div>
+<div class=row><img src=/top.mjpg><img src=/wrist.mjpg></div>
+<div class=card><b>Joint control</b> &nbsp; speed <select id=spd><option>2</option><option selected>4</option><option>8</option></select> °/s
+<span class=small> — buttons are relative steps; sliders send an absolute goal on release (all limited & guarded)</span>
+<table id=jt></table></div>
+<div class=card><b>Teach</b> &nbsp;<button id=rec onclick="rec()">● REC</button> <span id=recname class=small></span>
+&nbsp; | &nbsp; waypoint name <input id=wpn placeholder="e.g. above_brick"> <button onclick="c('wp_save&name='+encodeURIComponent(document.getElementById('wpn').value))">Save current pose</button>
+<div id=wps></div>
+<div style="margin-top:8px"><b>Floor model</b> &nbsp; tips height <input id=fh value=0 size=4> cm
+<button onclick="if(confirm('Are the gripper tips resting at exactly that height right now?'))c('floor_mark&h='+document.getElementById('fh').value)">Mark contact</button>
+<span id=floor class=small></span></div></div>
+<pre id=s></pre>
+<script>
+const J=["shoulder_pan","shoulder_lift","elbow_flex","wrist_flex","wrist_roll","gripper"];let lim={},st={},dragging=null;
+function c(a){fetch('/cmd?a='+a)}
+function spd(){return document.getElementById('spd').value}
+function step(j,d){c('goal&j='+j+'&v='+d+'&rel=1&speed='+spd())}
+function abs(j,v){c('goal&j='+j+'&v='+v+'&rel=0&speed='+spd())}
+function rec(){c(st.rec?'rec_stop':'rec_start')}
+function build(){let h='';for(const j of J){h+=`<tr><td>${j}</td><td><b id="v_${j}">-</b></td>
+<td><button onclick="step('${j}',-5)">−5</button><button onclick="step('${j}',-1)">−1</button>
+<input type=range id="r_${j}" step=0.5 onmousedown="dragging='${j}'" ontouchstart="dragging='${j}'" onchange="abs('${j}',this.value);dragging=null">
+<button onclick="step('${j}',1)">+1</button><button onclick="step('${j}',5)">+5</button></td><td class=small id="l_${j}"></td></tr>`}
+document.getElementById('jt').innerHTML=h}
+build();
+setInterval(()=>fetch('/state').then(r=>r.json()).then(j=>{st=j;
+ for(const k of J){const v=j.present[k];document.getElementById('v_'+k).textContent=v.toFixed(1);
+  const r=document.getElementById('r_'+k);const L=j.limits[k];r.min=L[0];r.max=L[1];document.getElementById('l_'+k).textContent=L[0]+' … '+L[1];
+  if(dragging!==k)r.value=v}
+ document.getElementById('banner').style.display=j.estop?'inline':'none';
+ const f=j.floor||{};document.getElementById('floor').textContent=f.fitted?`${f.points} contact points, fit rms ${f.rms_mm} mm — predicted tip height now: ${f.tip_z_cm} cm`:`${f.points} contact points (need ≥4 to fit)`;
+ const b=document.getElementById('rec');b.className=j.rec?'on':'';b.textContent=j.rec?'■ STOP REC':'● REC';
+ document.getElementById('recname').textContent=j.rec?('recording → recordings/'+j.rec):'';
+ const view={time:j.time,mode:j.mode,torque_on:j.torque_on,auto:j.auto,estop:j.estop,tip_z_cm:(j.floor||{}).tip_z_cm,present:j.present,blob:j.blob};
+ document.getElementById('s').textContent=JSON.stringify(view,null,1)}),300);
+setInterval(()=>fetch('/waypoints').then(r=>r.json()).then(w=>{let h='<table>';for(const n in w){h+=`<tr><td><b>${n}</b></td><td class=small>${J.map(k=>w[n][k]).join(' / ')}</td>
+ <td><button onclick="c('wp_goto&name='+encodeURIComponent('${n}'))">Go</button><button onclick="if(confirm('delete ${n}?'))c('wp_delete&name='+encodeURIComponent('${n}'))">✕</button></td></tr>`}
+ document.getElementById('wps').innerHTML=h+'</table>'}),1500);
+</script>

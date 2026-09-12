@@ -37,7 +37,7 @@
     "stall_guard": {"lag_deg": 4, "seconds": 0.7},
     "load_guard_of_1000": {"shoulder_pan": 300, "shoulder_lift": 400, "elbow_flex": 450, "wrist_flex": 300, "wrist_roll": 300},
     "floor_guard": {"min_tip_height_m_for_goals": 0.008, "freeze_below_m": 0.0},
-    "reach_tolerance_deg": 3, "estop_file": "./ESTOP",
+    "reach_tolerance_deg": 3, "estop_file": "ESTOP (repository root)",
     "known_gap": "pushing down into the table produces little motor load; only the floor model catches it"
   },
   "floor_model": {
@@ -73,10 +73,10 @@
     "arm_base_top_image_xy": [680, 520]
   },
   "interfaces": {
-    "cmd_dir": "./cmd/ (atomic write: .tmp then rename)", "done_dir": "./done/",
-    "state_file": "./state.json (5 Hz)", "log": "./bridge.log", "snapshots": ["top.jpg", "wrist.jpg"],
+    "cmd_dir": "var/cmd/ (atomic write: .tmp then rename)", "done_dir": "var/done/",
+    "state_file": "var/state.json (5 Hz)", "log": "var/bridge.log", "snapshots": ["var/top.jpg", "var/wrist.jpg"],
     "http": "http://localhost:8765 (/, /state, /waypoints, /cmd?a=..., /top.mjpg, /wrist.mjpg)",
-    "recordings": "./recordings/rec_*.jsonl rows {t, time, mode, torque, pos} and {t, event, ...}"
+    "recordings": "var/recordings/rec_*.jsonl rows {t, time, mode, torque, pos} and {t, event, ...}"
   },
   "runs": [
     {"time": "17:00-17:15", "mode": "manual step-by-step via cmd files", "result": "success", "notes": "table contact once (my height misjudgement); user stopped"},

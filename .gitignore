@@ -1,21 +1,14 @@
-# Runtime state produced by bridge.py
+# Emergency-stop flag and everything the daemon writes at runtime
 ESTOP
-state.json
-bridge.log
-cmd/*
-done/*
-recordings/*
-!cmd/.gitkeep
-!done/.gitkeep
-!recordings/.gitkeep
-top.jpg
-wrist.jpg
+var/
 
 # Python / uv
 __pycache__/
 *.py[cod]
 .venv/
 *.egg-info/
+.ruff_cache/
+.pytest_cache/
 
 # Editor / OS
 .DS_Store
