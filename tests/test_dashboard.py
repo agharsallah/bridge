@@ -58,6 +58,27 @@ def test_unknown_joint_is_refused(server):
     assert not ctrl.pending
 
 
+def test_log_tail_is_returned_as_json(server, tmp_path, monkeypatch):
+    monkeypatch.setattr(dashboard, "LOG_FILE", tmp_path / "bridge.log")
+    (tmp_path / "bridge.log").write_text("\n".join(f"line {i}" for i in range(300)))
+    base, _, _ = server
+    status, body = get(base + "/log?n=5")
+    assert status == 200
+    assert json.loads(body) == [f"line {i}" for i in range(295, 300)]
+
+
+def test_log_tail_survives_a_missing_file(server, tmp_path, monkeypatch):
+    monkeypatch.setattr(dashboard, "LOG_FILE", tmp_path / "gone.log")
+    base, _, _ = server
+    assert json.loads(get(base + "/log")[1]) == []
+
+
+def test_state_carries_the_floor_geometry(server):
+    base, _, _ = server
+    f = json.loads(get(base + "/state")[1])["floor"]
+    assert {"points", "fitted", "margin_cm", "grasp_cm", "arm"} <= set(f)
+
+
 def test_unknown_route_is_404(server):
     base, _, _ = server
     with pytest.raises(urllib.error.HTTPError) as e:

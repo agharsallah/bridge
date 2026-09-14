@@ -60,6 +60,21 @@ Restarting the bridge never drops torque: the arm holds its pose through a resta
 A frozen arm ("stalled" mode) stays where it is under torque. Send a new goal *away* from the obstacle,
 or **HOLD**, to continue.
 
+## 3b. Reading the dashboard
+
+| Panel | What it tells you |
+| --- | --- |
+| Status chips (top right) | `mode` · `torque` · `auto` (routine status) · `tip z` (predicted fingertip height) · `loop` (measured control-loop rate; ~30 Hz is healthy, a sustained drop means the bus or the cameras are struggling) · `floor` (contacts and fit rms) · `state` (clock and sequence number of the last state — if it stops advancing the daemon is stuck) |
+| Cameras | the live streams with the detector's box drawn in; the strip under each image repeats the detection as numbers (centre x/y, long side in px, area). "no brick detected" means the routine would refuse to start |
+| Side view | the arm drawn to scale from the **fitted floor model** — the same chain the floor guard reasons about. The dashed lines are the guard margin (0.8 cm) and the grasp height (1.0 cm); the white dot is the fingertips and turns red at or below the margin |
+| Joints | per joint: present value, goal (`→`), a track showing the soft-limit span with present (coloured), goal (blue) and interpolated command (grey) markers, the motor load against its guard limit, jog buttons and a slider |
+| Tip height | the last 60 s of predicted fingertip height with the guard and grasp lines — use it while jogging near the table |
+| Tracking error | per joint `|goal − present|`; a line that stays high is the arm not keeping up (a stall freeze usually follows) |
+| Log | the tail of `var/bridge.log`, colour-coded (red: guards, failures, refusals; amber: clamps and warnings; blue: routine and teaching). Hovering pauses the auto-scroll |
+
+The page polls `/state` 3×/s, the waypoints every 2 s and the log every 1.5 s. Losing the daemon shows as a red
+`state` chip and an outlined page; nothing is cached, so what you see is at most ~300 ms old.
+
 ## 4. Standard procedures
 
 ### 4.1 Autonomous pick-and-place (brick → tin)
@@ -125,10 +140,15 @@ Speed: number (all joints) or `{"joint": speed}`.
 `var/state.json` (rewritten 5×/s, atomically) and `GET /state`:
 ```
 {"seq", "time", "mode", "torque_on", "present": {joint: value}, "goal": {...}, "cmd": {...},
- "speed": {...}, "limits": {joint: [lo, hi]}, "last_cmd", "estop": bool, "tip_z_cm": float|null}
+ "speed": {...}, "limits": {joint: [lo, hi]}, "last_cmd", "estop": bool, "tip_z_cm": float|null,
+ "load": {joint: raw}, "load_limit": {joint: raw}, "loop_hz": float}
 ```
 `/state` additionally has `"blob": {"top": {...}, "wrist": {cx, cy, w, h, long, area}}`, `"auto": <routine status>`,
-`"rec": <file or null>`, `"floor": {points, fitted, rms_mm, tip_z_cm}`.
+`"rec": <file or null>`, `"floor": {points, fitted, rms_mm, tip_z_cm, margin_cm, grasp_cm, arm}`, where `arm` is the
+arm as the floor model sees it: `[[r, z], …]` in metres for shoulder axis, elbow, wrist and fingertips (the last
+`z` is `tip_z_cm / 100`), or `null` when the model is not fitted.
+
+`GET /log?n=<lines>` returns the last `n` lines of `var/bridge.log` as a JSON array (`n` ≤ 400, default 120).
 
 `mode` values: `hold` (holding, idle) · `moving` (interpolating to goal) · `reached` (at goal, holding) ·
 `stalled` (a guard froze it) · `estop` · `released` (torque off).

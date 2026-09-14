@@ -37,6 +37,25 @@ class FloorModel:
         a1 = s1 * np.radians(q[..., 0] - o1); a2 = s2 * np.radians(q[..., 1] - o2); a3 = s3 * np.radians(q[..., 2] - o3)
         return z0 + c["L1"] * np.cos(a1) + c["L2"] * np.cos(a1 + a2) + c["L3"] * np.cos(a1 + a2 + a3)
 
+    def arm_points(self, pose):
+        """The arm as a planar polyline [(r, z), ...] in metres: shoulder axis, elbow, wrist, fingertips.
+
+        Same chain as :meth:`height` — the z of the last point *is* the predicted fingertip height —
+        so the side view on the dashboard shows exactly what the floor guard is reasoning about.
+        Returns None when the model is not fitted.
+        """
+        if self.params is None: return None
+        o1, o2, o3, z0, s1, s2, s3 = self.params
+        c = self._c
+        a1 = s1 * np.radians(pose["shoulder_lift"] - o1)
+        a2 = s2 * np.radians(pose["elbow_flex"] - o2)
+        a3 = s3 * np.radians(pose["wrist_flex"] - o3)
+        pts, r, z = [(0.0, float(z0))], 0.0, float(z0)
+        for length, ang in ((c["L1"], a1), (c["L2"], a1 + a2), (c["L3"], a1 + a2 + a3)):
+            r += length * float(np.sin(ang)); z += length * float(np.cos(ang))
+            pts.append((round(r, 4), round(z, 4)))
+        return pts
+
     def points(self):
         pts = list(SEED_CONTACTS)
         if FLOOR_FILE.is_file():

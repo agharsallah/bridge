@@ -59,6 +59,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
     torque_on, mode, last_cmd_name = True, "hold", None
     last_state, seq, loop_i = 0.0, 0, 0
     stall_since, last_load_warn = None, 0.0
+    last_loads, loop_hz = {}, float(LOOP_HZ)
     stop = {"flag": False}
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGINT, lambda *_: stop.__setitem__("flag", True))
@@ -154,6 +155,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             if torque_on and mode in ("moving", "reached", "hold"):
                 try: loads = robot.bus.sync_read("Present_Load", normalize=False, num_retry=2)
                 except Exception: loads = {}
+                if loads: last_loads = {j: int(v) for j, v in loads.items()}
                 hot = {j: v for j, v in loads.items() if j != "gripper" and abs(v) > LOAD_LIMIT[j]}
                 if hot and mode == "moving":
                     goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("load guard")
@@ -212,10 +214,12 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                       "goal": {k: round(v, 2) for k, v in goal.items()}, "cmd": {k: round(v, 2) for k, v in cmd.items()},
                       "speed": speed, "limits": {k: [round(a, 1), round(b, 1)] for k, (a, b) in limits.items()},
                       "last_cmd": last_cmd_name, "estop": ESTOP.exists(),
-                      "tip_z_cm": round(zp * 100, 1) if zp is not None else None}
+                      "tip_z_cm": round(zp * 100, 1) if zp is not None else None,
+                      "load": last_loads, "load_limit": LOAD_LIMIT, "loop_hz": round(loop_hz, 1)}
                 with ctrl.lock: ctrl.state = st
                 atomic_write(STATE_FILE, json.dumps(st, indent=1).encode()); last_state = now
         except Exception:
             log("ERROR in loop:\n" + traceback.format_exc()); time.sleep(0.5)
         el = time.perf_counter() - t0
+        loop_hz = 0.9 * loop_hz + 0.1 / max(el, dt)
         if el < dt: time.sleep(dt - el)

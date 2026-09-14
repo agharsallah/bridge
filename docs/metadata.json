@@ -74,7 +74,7 @@
   },
   "interfaces": {
     "cmd_dir": "var/cmd/ (atomic write: .tmp then rename)", "done_dir": "var/done/",
-    "state_file": "var/state.json (5 Hz)", "log": "var/bridge.log", "snapshots": ["var/top.jpg", "var/wrist.jpg"],
+    "state_extra": "state adds load{joint}, load_limit{joint}, loop_hz; /state adds floor.arm [[r,z],..] m, floor.margin_cm, floor.grasp_cm; GET /log?n= returns the log tail", "state_file": "var/state.json (5 Hz)", "log": "var/bridge.log", "snapshots": ["var/top.jpg", "var/wrist.jpg"],
     "http": "http://localhost:8765 (/, /state, /waypoints, /cmd?a=..., /top.mjpg, /wrist.mjpg)",
     "recordings": "var/recordings/rec_*.jsonl rows {t, time, mode, torque, pos} and {t, event, ...}"
   },

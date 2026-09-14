@@ -39,7 +39,7 @@ to do when something goes wrong.
 | `autopick.py` | the autonomous pick-and-place routine |
 | `floor.py` | fitted floor model: predicted fingertip height, the guard that protects the table |
 | `vision.py` | brick detection and the dashboard overlay |
-| `dashboard.py` + `web/dashboard.html` | local HTTP dashboard and JSON/MJPEG interfaces |
+| `dashboard.py` + `web/dashboard.html` | local HTTP dashboard (status chips, camera streams, to-scale side view of the floor model, joint tracks with load, tip-height and tracking-error charts, log tail) and the JSON/MJPEG interfaces |
 | `settings.py` | hardware identity and tuning constants — the one file to edit for a new setup |
 | `paths.py` | where config and runtime files live |
 | `poses.py`, `util.py` | proven joint poses; logging and atomic writes |

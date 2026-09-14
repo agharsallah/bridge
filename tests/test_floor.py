@@ -68,3 +68,18 @@ def test_height_is_independent_of_pan(model):
 def test_seed_contacts_are_plausible():
     q = np.array([[c["shoulder_lift"], c["elbow_flex"], c["wrist_flex"]] for c in floor_mod.SEED_CONTACTS])
     assert q.shape[1] == 3
+
+
+def test_arm_points_end_at_the_predicted_tip_height(model):
+    m, contacts = model
+    pts = m.arm_points(contacts[0])
+    assert len(pts) == 4                                   # shoulder, elbow, wrist, fingertips
+    assert pts[0][0] == 0.0                                # the chain starts on the shoulder axis
+    assert pts[-1][1] == pytest.approx(m.z(contacts[0]), abs=1e-3)
+
+
+def test_arm_points_are_none_without_a_fit(tmp_path, monkeypatch):
+    monkeypatch.setattr(floor_mod, "FLOOR_FILE", tmp_path / "none.json")
+    monkeypatch.setattr(floor_mod, "FLOOR_CFG", tmp_path / "none_cfg.json")
+    monkeypatch.setattr(floor_mod, "SEED_CONTACTS", [])
+    assert FloorModel().arm_points({"shoulder_lift": 0, "elbow_flex": 0, "wrist_flex": 0}) is None

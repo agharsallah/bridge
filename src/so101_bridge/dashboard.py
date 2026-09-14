@@ -13,7 +13,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .controller import Controller
-from .paths import ESTOP
+from .floor import FLOOR_MARGIN, GRASP_Z
+from .paths import ESTOP, LOG_FILE
 from .settings import HTTP_PORT, JOINTS
 from .util import log
 
@@ -43,7 +44,9 @@ def make_handler(ctrl: Controller):
                 z = ctrl.floor.z(st["present"]) if st.get("present") else None
                 st["floor"] = {"points": ctrl.floor.n, "fitted": ctrl.floor.params is not None,
                                "rms_mm": round(ctrl.floor.rms * 1000, 1) if ctrl.floor.rms else None,
-                               "tip_z_cm": round(z * 100, 1) if z is not None else None}
+                               "tip_z_cm": round(z * 100, 1) if z is not None else None,
+                               "arm": ctrl.floor.arm_points(st["present"]) if st.get("present") else None,
+                               "margin_cm": FLOOR_MARGIN * 100, "grasp_cm": GRASP_Z * 100}
                 body = json.dumps(st).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             elif u.path in ("/top.mjpg", "/wrist.mjpg"):
@@ -59,6 +62,12 @@ def make_handler(ctrl: Controller):
                         time.sleep(0.1)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
+            elif u.path == "/log":
+                n = min(400, max(1, int((parse_qs(u.query).get("n", ["120"])[0]) or 120)))
+                try: lines = LOG_FILE.read_text(errors="replace").splitlines()[-n:]
+                except OSError: lines = []
+                body = json.dumps(lines).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             elif u.path == "/waypoints":
                 body = json.dumps(ctrl.wp_load()).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
