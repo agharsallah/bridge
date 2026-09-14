@@ -458,6 +458,22 @@
    "paintings/sky_ground.plan.json",
    "paintings/ground_h.plan.json"
   ],
-  "rule": "fills: strokes along u (pan sweeps at constant lift); radial (v) strokes only for short details"
+  "rule": "fills: strokes along u (pan sweeps at constant lift); radial (v) strokes only for short details",
+  "iteration2": {
+   "plan": "paintings/landscape2.plan.json",
+   "strokes": 84,
+   "colour_changes": 4,
+   "row_pitch_cm": 0.6,
+   "max_run_cm": 9,
+   "reserves_cm": {
+    "sun": 0.8,
+    "house": 0.6
+   },
+   "stroke_speed": 10,
+   "travel_speed": 11,
+   "rinse_dips": 3,
+   "dip_dwell_s": 1.0,
+   "minutes": 31
+  }
  }
 }

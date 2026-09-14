@@ -146,13 +146,13 @@
   "press_cm": 0.15,
   "width_mm": 6.0,
   "dip_every_cm": 6.0,
-  "stroke_speed": 8.0,
-  "travel_speed": 9.0,
+  "stroke_speed": 10.0,
+  "travel_speed": 11.0,
   "dip_dwell_s": 1.0,
   "rinse_dips": 3.0,
   "z_offset_cm": 0.0
  },
- "updated": "2026-09-14 18:14:22",
+ "updated": "2026-09-14 19:04:23",
  "probes": [
   {
    "u": 6.7,

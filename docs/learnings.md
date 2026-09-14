@@ -134,3 +134,27 @@ v 12.2). 21 strokes, 2 colour changes, ~8 min including one interruption.
   more than one joint at once) before freezing. Resume was one `paint … from_stroke` away.
 - **Lettering**: with a 6 mm brush, letters need ≥1.2 cm height and ≥0.3 cm gaps to stay legible; a 5-point
   polyline per letter is enough. Sign last, after the background has dried.
+
+## Second iteration — `paintings/landscape2.plan.json` (18:43–19:15)
+
+Same paper position, same stations, one plan, 84 strokes (41 blue rows, 24 green rows, 6 yellow chords, 12 red
+incl. signature, 1 blue window), 4 colour changes, ~31 min incl. one restart. Videos `var/videos/20260914_1843*`,
+`_1846*`, `_1904*`. Result (camera): even sky and ground with no white gaps, sun on clean paper, roof on a white
+house silhouette, flowers and signature crisp. Compared with the first sheet the difference came from *order and
+geometry*, not from new hardware:
+1. **Fills first, details last.** Paint the two big light areas, leaving white *reserves* (sun circle + 0.8 cm,
+   house polygon + 0.6 cm), then put the details onto paper that has dried while the other fill ran (~10 min).
+   Painting details first and filling around them is what smeared the first sheet.
+2. **Rows, not columns.** Every fill row is a pan sweep at constant lift (u direction), pitch 0.6 cm, split so no
+   run exceeds 9 cm, dip before every run (`dip_every_cm 6`). ~25 s per row.
+3. **Clean colour**: `rinse_dips 3 × 1 s` before each change; still a slight green cast in the yellow after the
+   green fill — a towel station (`kind: "towel"`) is the next step.
+4. **Bogus load packets** (`wrist_roll -995` on an idle joint) stopped the run once more → load guard now needs
+   the same joint hot on two consecutive ticks; single spikes are logged as `load spike ignored`. No false stops
+   after that, at stroke 10 / travel 11 deg/s.
+5. **Speed**: 10 / 11 deg/s ran clean with limits 750 / STALL 6; that is the practical ceiling for this arm with
+   a 16 cm brush (peak shoulder load 544 at the far edge).
+6. **Camera check cadence**: after the sky, after the ground, at the end — enough to catch a wrong colour or a
+   missed reserve; the overhead view shows the whole sheet only when the arm is at a station or folded.
+Things still to improve: hill line as a soft two-tone (the light and dark greens of the reference are one green
+here); a towel dab; `abort` at a stroke boundary is manual — a `pause_at_stroke` flag would be cleaner.

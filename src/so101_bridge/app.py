@@ -66,6 +66,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
     last_state, seq, loop_i = 0.0, 0, 0
     stall_since, last_load_warn = None, 0.0
     settle_since, last_settle_pose = None, None
+    hot_prev = set()
     last_loads, loop_hz = {}, float(LOOP_HZ)
     path_queue, path_total = [], 0          # continuous waypoint execution ({"action": "path"})
     stop = {"flag": False}
@@ -249,6 +250,11 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 except Exception: loads = {}
                 if loads: last_loads = {j: int(v) for j, v in loads.items()}
                 hot = {j: v for j, v in loads.items() if j != "gripper" and abs(v) > LOAD_LIMIT[j]}
+                # a single over-limit sample is not trusted: the Feetech bus occasionally returns a garbage packet
+                # (three joints at once near +-1000, or a joint that is not moving) — a real overload persists,
+                # so freeze only when the same joint is hot on two consecutive ticks
+                hot_now = set(hot); hot = {j: v for j, v in hot.items() if j in hot_prev}; hot_prev = hot_now
+                if hot_now and not hot: log(f"load spike ignored (single sample): { {j: loads[j] for j in hot_now} }")
                 if hot and mode == "moving":
                     path_queue = []; goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("load guard")
                     ctrl.event("LOAD GUARD", f"{hot} -> frozen at present.")
