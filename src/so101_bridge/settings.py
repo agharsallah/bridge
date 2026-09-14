@@ -1,9 +1,19 @@
-"""Hardware identity and tuning constants — the only file to edit when the setup changes."""
+"""Hardware identity and tuning constants.
+
+Defaults live here; a deployment overrides them without touching code by putting the same UPPER_CASE
+names into ``config/settings.json`` (dict values are merged key by key, everything else replaced).
+``config/settings.example.json`` lists every key. The names that were overridden are kept in
+``OVERRIDDEN`` so the dashboard can show them.
+"""
+
+import json
+import os
 
 # ------------------------------------------------------------------------------- hardware
 PORT = "/dev/cu.usbmodem5A460836731"
 ROBOT_ID = "my_follower"
 CAMS = {"top": 0, "wrist": 1}
+CAM_W, CAM_H, CAM_FPS = 1920, 1080, 30
 HTTP_PORT = 8765
 LOOP_HZ = 30
 VISION_EVERY = 3            # process/encode frames every N loops (~10 fps)
@@ -34,3 +44,40 @@ CY_TARGET = 300                         # brick centre y we aim for during the a
 LIFT_STEP, LIFT_MAX = 5.0, 95.0         # shoulder step per iteration (down) and forward cap (limits.json allows 98)
 WRIST_PER_LIFT = 0.7                    # wrist- per lift+ to keep the camera looking down (READY->GRASP data)
 
+
+# ------------------------------------------------------- brick detector (vision.py) — HSV gates, 960x540 frame
+TARGET_HSV = {"h": [14, 40], "s_min": 40, "v_min": 80}   # yellow Duplo; sat drops to ~45 when the brick fills the view
+TARGET_MIN_AREA = 600
+TARGET_SOLIDITY, TARGET_FILL = 0.7, 0.5
+FRAME_W, FRAME_H = 960, 540
+JPEG_QUALITY = 75
+
+# ------------------------------------------------------- overrides from config/settings.json
+OVERRIDDEN = []
+
+
+def _apply_overrides():
+    from .paths import SETTINGS_FILE
+    path = os.environ.get("SO101_SETTINGS", str(SETTINGS_FILE))
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return
+    except Exception as e:                      # malformed file: run on defaults, say so loudly
+        print(f"settings: {path} unreadable ({e}) -> defaults", flush=True)
+        return
+    g = globals()
+    for key, value in data.items():
+        if key.startswith("_") or key not in g or key in ("OVERRIDDEN",):
+            print(f"settings: ignoring unknown key {key!r}", flush=True); continue
+        if isinstance(g[key], dict) and isinstance(value, dict):
+            g[key] = {**g[key], **value}
+        else:
+            g[key] = value
+        OVERRIDDEN.append(key)
+    if "JOINTS" in OVERRIDDEN:
+        g["ARM"] = g["JOINTS"][:-1]
+
+
+_apply_overrides()

@@ -8,6 +8,7 @@ handler, the AUTO PICK routine, the file watcher — goes through :meth:`Control
 import json
 import threading
 import time
+from collections import deque
 
 from .floor import FloorModel
 from .paths import REC_DIR, REST_FILE, WP_FILE
@@ -29,6 +30,51 @@ class Controller:
         self.routine_status = "idle"
         self.rec_file, self.rec_t0, self.rec_name = None, 0.0, None
         self.floor = FloorModel()
+        # --- observability: what the routine is doing, what the guards did, whether we may start
+        self.progress = self._fresh_progress()
+        self.events = deque(maxlen=60)           # guard / safety events: {"t", "time", "kind", "msg"}
+
+    # ------------------------------------------------------------- observability
+    @staticmethod
+    def _fresh_progress(routine=None):
+        return {"routine": routine, "phase": None, "detail": "", "started": None, "finished": None,
+                "history": [], "servo": None}
+
+    def phase(self, name, detail=""):
+        """Routines call this at every step boundary; the dashboard shows the sequence and timings."""
+        with self.lock:
+            pr = self.progress
+            now = time.time()
+            if pr["history"]:
+                pr["history"][-1]["dt"] = round(now - pr["history"][-1]["t"], 1)
+            pr["history"].append({"phase": name, "detail": detail, "t": now, "time": time.strftime("%H:%M:%S")})
+            pr["phase"], pr["detail"] = name, detail
+        log(f"[{pr['routine'] or 'routine'}] {name}{': ' + detail if detail else ''}")
+
+    def servo_progress(self, **kw):
+        with self.lock:
+            self.progress["servo"] = kw
+
+    def event(self, kind, msg):
+        """Record a guard/safety event (also logged)."""
+        with self.lock:
+            self.events.append({"t": time.time(), "time": time.strftime("%H:%M:%S"), "kind": kind, "msg": msg})
+        log(f"{kind}: {msg}")
+
+    def preflight(self, state, blobs):
+        """Checklist for starting the autonomous routine; each item {name, ok, detail}."""
+        busy = self.routine_thread is not None and self.routine_thread.is_alive()
+        mode = state.get("mode")
+        checks = [
+            ("floor model fitted", self.floor.params is not None,
+             f"{self.floor.n} contacts, rms {self.floor.rms * 1000:.1f} mm" if self.floor.rms else f"{self.floor.n} contacts (need 4)"),
+            ("brick visible (top camera)", "top" in blobs, f"x {blobs['top']['cx']} y {blobs['top']['cy']}" if "top" in blobs else "no detection"),
+            ("no emergency stop", not state.get("estop"), "ESTOP file present" if state.get("estop") else "clear"),
+            ("torque on", bool(state.get("torque_on", True)), "" if state.get("torque_on", True) else "press ENGAGE"),
+            ("arm not frozen by a guard", mode != "stalled", "send HOLD or a goal away from the obstacle" if mode == "stalled" else ""),
+            ("no routine running", not busy, self.routine_status if busy else ""),
+        ]
+        return [{"name": n, "ok": bool(ok), "detail": d} for n, ok, d in checks]
 
     # ------------------------------------------------------------- recording / waypoints (teach by demonstration)
     def rec_start(self):
@@ -109,13 +155,32 @@ class Controller:
             return dict(self.state), dict(self.blob)
 
     # ------------------------------------------------------------- autonomous routine (runs in a thread)
-    def start_auto(self):
+    def start_routine(self, name):
+        """Run a registered routine (see routines.py) in its own thread."""
+        from .routines import get as get_routine  # local import: routines drive the controller, not the reverse
+        spec = get_routine(name)
+        if spec is None:
+            log(f"unknown routine {name!r}"); return False
         if self.routine_thread and self.routine_thread.is_alive():
-            log("AUTO already running"); return
+            log(f"busy: {self.routine_status} (ABORT first)"); return False
         self.routine_abort.clear()
-        from . import autopick  # local import: autopick drives the controller, not the reverse
-        self.routine_thread = threading.Thread(target=autopick.run, args=(self,), daemon=True)
+        with self.lock:
+            self.progress = self._fresh_progress(name); self.progress["started"] = time.time()
+        self.routine_status = "running"
+
+        def run():
+            try:
+                spec.run(self)
+            finally:
+                with self.lock:
+                    self.progress["finished"] = time.time()
+        self.routine_thread = threading.Thread(target=run, daemon=True, name=f"routine-{name}")
         self.routine_thread.start()
+        return True
+
+    def start_auto(self):
+        """Backwards-compatible alias: the built-in pick-and-place."""
+        return self.start_routine("pick_place")
 
     def abort_auto(self, why="abort requested"):
         if self.routine_thread and self.routine_thread.is_alive():

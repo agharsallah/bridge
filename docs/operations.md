@@ -208,3 +208,16 @@ Images: `var/top.jpg`, `var/wrist.jpg` (960×540 JPEG, ~every 1.5 s, with detect
 | `scripts/` | `STOP.command` · `RESUME.command` · `RELEASE.command` |
 | `docs/` | `operations.md` (this) · `learnings.md` · `metadata.json` · `decision-log.json` · `motion-log-pick-place.md` |
 | `ESTOP` | at the repository root: present = arm frozen |
+
+
+## Added in 3.4
+
+- `config/settings.json` overrides any constant in `settings.py` (port, camera indices, gains, guard limits,
+  detector colour gates, servo tuning); `config/poses.json` overrides the taught paths. Examples in `config/*.example.json`.
+- Routines are registered by name (`routines.py`); start with `/cmd?a=routine&name=<name>` or `{"action":"routine","name":...}`.
+  `/state.routines` lists them with their phase sequence.
+- `/state.progress` = current routine phase, detail, per-phase timings and the live approach servo values;
+  `/state.events` = the last 60 guard events; `/state.preflight` = the start checklist (the AUTO button dims when red).
+- Dashboard: Routine panel (phases, preflight, approach convergence), Guard events panel, Esc = STOP.
+- Tests run without lerobot installed (`hardware.py` imports it lazily); `tests/test_autopick.py` drives the routine
+  against a simulated arm.

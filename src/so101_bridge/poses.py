@@ -1,11 +1,16 @@
 """Proven joint poses (degrees; gripper 0..100) and the configurable rest pose.
 
 The waypoint lists are the paths that were validated on the real arm — see docs/learnings.md.
+Any of them can be replaced without code changes through ``config/poses.json``::
+
+    {"TRANSIT": [{"shoulder_pan": 5}, {"shoulder_lift": 13.8, "elbow_flex": 62.3, "wrist_flex": 5}, ...]}
+
+Waypoints are joint dicts; consecutive waypoints should differ by <= 12 deg per joint (the step cap).
 """
 
 import json
 
-from .paths import REST_FILE
+from .paths import POSES_FILE, REST_FILE
 from .settings import JOINTS
 from .util import log
 
@@ -39,3 +44,25 @@ TRANSIT = [P(pan=5), P(lift=13.8, elbow=62.3, wrist=5), P(lift=18.2, elbow=54.1,
 RETREAT = [P(lift=20, elbow=56, wrist=5), P(pan=-2, grip=10), P(lift=10, elbow=66, wrist=15),
            P(lift=0, elbow=68.5, wrist=22), P(lift=-10, elbow=72, wrist=30), P(lift=-20, elbow=77, wrist=35),
            P(lift=-30, elbow=80, wrist=37), P(lift=-42, elbow=80.7, wrist=37)]
+
+
+PATHS = {"UNFOLD": UNFOLD, "DESCENT": DESCENT, "LIFT": LIFT, "TRANSIT": TRANSIT, "RETREAT": RETREAT}
+OVERRIDDEN = []
+
+
+def _apply_overrides():
+    """Replace whole paths from config/poses.json (validated: list of joint dicts)."""
+    try:
+        data = json.loads(POSES_FILE.read_text()) if POSES_FILE.is_file() else {}
+    except Exception as e:
+        log(f"config/poses.json unreadable ({e}) -> built-in paths"); return
+    for name, wps in data.items():
+        if name not in PATHS:
+            log(f"poses.json: unknown path {name!r} ignored"); continue
+        if not (isinstance(wps, list) and wps and all(isinstance(w, dict) and all(k in JOINTS for k in w) for w in wps)):
+            log(f"poses.json: {name} must be a non-empty list of joint dicts -> ignored"); continue
+        PATHS[name][:] = [{k: float(v) for k, v in w.items()} for w in wps]   # in place: importers see it
+        OVERRIDDEN.append(name)
+
+
+_apply_overrides()

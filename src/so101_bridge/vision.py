@@ -3,14 +3,20 @@
 import cv2
 import numpy as np
 
-from .settings import SERVO_X_BOTTOM, SERVO_X_TOP
-
-FRAME_W, FRAME_H = 960, 540          # size the detector and the dashboard streams run at
-JPEG_QUALITY = 75
+from . import settings
+from .settings import FRAME_H, FRAME_W, JPEG_QUALITY, SERVO_X_BOTTOM, SERVO_X_TOP
 
 
-def find_yellow(bgr, hmin=14, hmax=40, smin=40, vmin=80, min_area=600):
-    """Largest solid yellow blob -> dict(cx, cy, w, h, long) or None. Tin label (orange, ring-like) is rejected."""
+def find_yellow(bgr, hmin=None, hmax=None, smin=None, vmin=None, min_area=None):
+    """Largest solid target-coloured blob -> dict(cx, cy, w, h, long) or None.
+
+    Gates default to ``settings.TARGET_HSV`` (overridable in config/settings.json); the tin's orange,
+    ring-shaped label is rejected by hue and by the solidity/fill filters.
+    """
+    t = settings.TARGET_HSV
+    hmin = t["h"][0] if hmin is None else hmin; hmax = t["h"][1] if hmax is None else hmax
+    smin = t["s_min"] if smin is None else smin; vmin = t["v_min"] if vmin is None else vmin
+    min_area = settings.TARGET_MIN_AREA if min_area is None else min_area
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     m = cv2.inRange(hsv, (hmin, smin, vmin), (hmax, 255, 255))
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
@@ -23,7 +29,7 @@ def find_yellow(bgr, hmin=14, hmax=40, smin=40, vmin=80, min_area=600):
             continue
         x, y, w, h = cv2.boundingRect(c)
         hull = cv2.contourArea(cv2.convexHull(c)) or 1
-        if a / hull < 0.7 or a / (w * h) < 0.5:
+        if a / hull < settings.TARGET_SOLIDITY or a / (w * h) < settings.TARGET_FILL:
             continue
         if best is None or a > best["area"]:
             best = dict(area=int(a), x=x, y=y, w=w, h=h, cx=x + w // 2, cy=y + h // 2, long=max(w, h))

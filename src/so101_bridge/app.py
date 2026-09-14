@@ -74,9 +74,9 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             target = present[j] + float(v) if c.get("relative") else float(v)
             if j != "gripper" and abs(target - present[j]) > MAX_STEP_DEG:
                 target = present[j] + MAX_STEP_DEG * (1 if target > present[j] else -1)
-                log(f"STEP CAP {j}: limited to {MAX_STEP_DEG} deg from present")
+                ctrl.event("STEP CAP", f"{j}: limited to {MAX_STEP_DEG} deg from present")
             lo, hi = limits[j]; clamped = min(hi, max(lo, target))
-            if abs(clamped - target) > 1e-6: log(f"CLAMP {j}: {target:.1f} -> {clamped:.1f}")
+            if abs(clamped - target) > 1e-6: ctrl.event("CLAMP", f"{j}: {target:.1f} -> {clamped:.1f}")
             goal[j] = clamped
         # floor guard: shrink the step until the predicted fingertip height stays above the margin
         if ctrl.floor.params is not None and c.get("src") != "floor_ok":
@@ -85,7 +85,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 zt = ctrl.floor.z(trial)
                 if zt is not None and zt >= FLOOR_MARGIN: break
             if frac < 1.0:
-                log(f"FLOOR GUARD: goal would put the tips at {ctrl.floor.z(goal) * 100:.1f} cm -> step scaled to {frac:.2f}")
+                ctrl.event("FLOOR GUARD", f"goal would put the tips at {ctrl.floor.z(goal) * 100:.1f} cm -> step scaled to {frac:.2f}")
                 for j in ARM: goal[j] = trial[j]
         s = c.get("speed")
         if s is not None:
@@ -108,7 +108,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             if ESTOP.exists():
                 if mode != "estop":
                     goal, cmd, mode = dict(present), dict(present), "estop"; ctrl.abort_auto("ESTOP file")
-                    log("ESTOP -> frozen. RESUME (or delete the ESTOP file) to continue.")
+                    ctrl.event("ESTOP", "frozen. RESUME (or delete the ESTOP file) to continue.")
             elif mode == "estop":
                 mode, goal, cmd = "hold", dict(present), dict(present); log("ESTOP cleared")
 
@@ -133,6 +133,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     robot.bus.enable_torque(num_retry=5); torque_on = True; goal, cmd, mode = dict(present), dict(present), "hold"
                     log("torque engaged (holding current pose)"); ctrl.rec_write({"event": "engage"})
                 elif act == "auto": ctrl.start_auto()
+                elif act == "routine": ctrl.start_routine(c.get("name", "pick_place"))
                 elif act == "rest": ctrl.go_rest()
                 elif act == "write":
                     allowed = {"Max_Position_Limit", "Min_Position_Limit", "P_Coefficient", "D_Coefficient",
@@ -159,14 +160,14 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 hot = {j: v for j, v in loads.items() if j != "gripper" and abs(v) > LOAD_LIMIT[j]}
                 if hot and mode == "moving":
                     goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("load guard")
-                    log(f"LOAD GUARD: {hot} -> frozen at present.")
+                    ctrl.event("LOAD GUARD", f"{hot} -> frozen at present.")
                 elif hot and time.time() - last_load_warn > 2.0:
                     last_load_warn = time.time(); log(f"load warning while holding: {hot}")
             # ---- floor guard (runtime): predicted tip height below the table plane -> freeze
             zp = ctrl.floor.z(present)
             if zp is not None and torque_on and mode == "moving" and zp < FLOOR_FREEZE:
                 goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("floor guard")
-                log(f"FLOOR FREEZE: predicted tip height {zp * 100:.1f} cm")
+                ctrl.event("FLOOR FREEZE", f"predicted tip height {zp * 100:.1f} cm")
             # ---- stall guard
             if torque_on and mode == "moving":
                 lag = {j: abs(cmd[j] - present[j]) for j in ARM}; worst = max(lag, key=lag.get)
@@ -174,7 +175,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     stall_since = stall_since or time.time()
                     if time.time() - stall_since > STALL_SEC:
                         goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("stall guard")
-                        log(f"STALL on {worst} (lag {lag[worst]:.1f}) -> frozen at present.")
+                        ctrl.event("STALL", f"{worst} lag {lag[worst]:.1f} deg -> frozen at present.")
                 else: stall_since = None
             else: stall_since = None
 

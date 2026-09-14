@@ -88,6 +88,23 @@ pre#raw{background:#0b0f14;border:1px solid var(--line);border-radius:8px;paddin
 .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin-top:6px}
 .legend i{display:inline-block;width:9px;height:3px;border-radius:2px;margin-right:4px;vertical-align:middle}
 .stale{outline:1px solid var(--bad)}
+.steps{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 8px}
+.step{flex:1 1 70px;min-width:70px;border-radius:6px;padding:6px 8px;background:var(--panel2);border:1px solid var(--line);font-size:11px}
+.step b{display:block;font-size:11px;text-transform:capitalize}.step span{color:var(--dim);font-size:10px}
+.step.done{border-color:#2ea043;color:#9be9a8}.step.now{border-color:var(--accent);background:#0d3a66;animation:pulse 1.4s infinite}
+.step.failed{border-color:var(--bad);background:#4a1d1a;color:#ffb3ad}
+.check{display:flex;gap:8px;align-items:baseline;padding:3px 0;font-size:12px}
+.check i{font-style:normal;width:14px;text-align:center}.check.ok i{color:var(--ok)}.check.no i{color:var(--bad)}
+.check span{color:var(--dim)}
+.ev{display:flex;gap:8px;padding:3px 0;border-top:1px solid var(--line);font-size:11.5px}
+.ev .k{min-width:96px;font-weight:600}.ev .t{color:var(--dim);min-width:58px}
+.ev.bad .k{color:var(--bad)}.ev.warn .k{color:var(--warn)}
+.gauge{display:grid;grid-template-columns:70px 1fr 90px;gap:8px;align-items:center;font-size:11.5px;padding:3px 0}
+.gauge .bar{position:relative;height:10px;background:var(--panel2);border-radius:5px;overflow:hidden;margin:0}
+.gauge .bar i{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--dim)}
+.gauge .bar b{position:absolute;top:1px;bottom:1px;width:8px;border-radius:4px;background:var(--accent);transform:translateX(-50%)}
+.gauge .bar b.ok{background:var(--ok)}
+kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px}
 </style>
 
 <header>
@@ -104,11 +121,13 @@ pre#raw{background:#0b0f14;border:1px solid var(--line);border-radius:8px;paddin
     </div>
   </div>
   <div id=banner>ESTOP ACTIVE — all commands ignored — press RESUME</div>
+  <div class=small style="margin-top:6px"><kbd>Esc</kbd> = STOP from anywhere on this page · every move is clamped, step-capped and guarded</div>
   <div class=bar>
     <button id=stop onclick="c('stop')">STOP</button>
     <button id=resume onclick="c('resume')">RESUME</button>
     <button id=hold onclick="c('hold')">HOLD</button>
-    <button id=auto onclick="c('auto')">AUTO PICK</button>
+    <button id=auto onclick="startRoutine()">AUTO PICK</button>
+    <select id=routine title="routine to run"></select>
     <button id=abort onclick="c('abort')">ABORT</button>
     <button id=rest onclick="c('rest')">GO TO REST</button>
     <button onclick="if(confirm('Save the CURRENT pose as the rest position?'))c('rest_save')">Save as REST</button>
@@ -155,6 +174,20 @@ pre#raw{background:#0b0f14;border:1px solid var(--line);border-radius:8px;paddin
     <div class=legend id=elegend></div>
   </section>
 
+  <section class="card span8">
+    <h2>Routine — what is happening <span class=small id=r_title style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class=steps id=steps></div>
+    <div class=hrow style="align-items:flex-start;gap:18px;flex-wrap:wrap">
+      <div style="flex:1 1 240px"><h2>Preflight</h2><div id=preflight></div></div>
+      <div style="flex:1 1 260px"><h2>Approach convergence</h2><div id=servo class=small>not in the approach phase</div></div>
+    </div>
+  </section>
+
+  <section class="card span4">
+    <h2>Guard events <span class=small style="text-transform:none;letter-spacing:0">— newest first</span></h2>
+    <div id=events class=small>none yet</div>
+  </section>
+
   <section class="card span6">
     <h2>Teach</h2>
     <div class=hrow>
@@ -189,6 +222,40 @@ const hz=[], herr={}; J.forEach(j=>herr[j]=[]);
 let st={}, dragging=null, stale=0, logPaused=false;
 
 function c(a){fetch('/cmd?a='+a).catch(()=>{})}
+function startRoutine(){ const r=$('routine').value||'pick_place';
+  const bad=(st.preflight||[]).filter(p=>!p.ok);
+  if(bad.length && !confirm('Preflight not green:\n- '+bad.map(p=>p.name+(p.detail?' ('+p.detail+')':'')).join('\n- ')+'\n\nStart anyway?')) return;
+  c('routine&name='+encodeURIComponent(r)); }
+addEventListener('keydown',e=>{ if(e.key==='Escape'){ c('stop'); e.preventDefault(); } });
+let routinesLoaded=false;
+function paintRoutine(j){
+  const pr=j.progress||{}, cat=j.routines||[];
+  if(!routinesLoaded && cat.length){ $('routine').innerHTML=cat.map(r=>`<option value="${r.name}">${r.label}</option>`).join(''); routinesLoaded=true; }
+  const spec=cat.find(r=>r.name===pr.routine)||cat[0]||{phases:[]};
+  const hist=pr.history||[], done=new Set(hist.map(h=>h.phase)), cur=pr.phase;
+  const failed=cur==='failed'||cur==='error';
+  $('r_title').textContent=pr.routine?`— ${pr.routine} · ${pr.finished?'finished':'running'}${pr.detail?' · '+pr.detail:''}`:'— idle';
+  $('steps').innerHTML=(spec.phases||[]).map(p=>{
+    const h=hist.filter(x=>x.phase===p).pop();
+    const cls=p===cur&&!pr.finished?'now':(done.has(p)?'done':'');
+    const fl=(failed && h && !hist.slice(hist.indexOf(h)+1).some(x=>spec.phases.includes(x.phase)))?' failed':'';
+    return `<div class="step ${cls}${fl}"><b>${p}</b><span>${h?(h.time+(h.dt!==undefined?' · '+h.dt+' s':'')):'—'}</span></div>`;}).join('')
+    +(failed?`<div class="step failed" style="flex:2 1 100%"><b>${cur}</b><span>${pr.detail||''}</span></div>`:'');
+  $('preflight').innerHTML=(j.preflight||[]).map(p=>`<div class="check ${p.ok?'ok':'no'}"><i>${p.ok?'✓':'✕'}</i>${p.name}<span>${p.detail||''}</span></div>`).join('');
+  $('auto').style.opacity=(j.preflight||[]).every(p=>p.ok)?1:.55;
+  const sv=pr.servo;
+  if(sv && cur==='approach'){
+    const g=(label,val,target,tol,unit)=>{ const err=val-target, span=Math.max(Math.abs(err),tol)*2.2||1, pct=50+err/span*50;
+      return `<div class=gauge><span>${label}</span><div class=bar><i></i><b class="${Math.abs(err)<=tol?'ok':''}" style="left:${Math.max(2,Math.min(98,pct))}%"></b></div><span class=mono>${val}${unit} → ${target}${unit}</span></div>`; };
+    $('servo').innerHTML=`<div class=small>iteration ${sv.iteration} · brick ${sv.size} px</div>`
+      +g('lateral x',sv.x,sv.x_target,sv.tol_x,'px')+g('reach y',sv.y,sv.y_target,sv.tol_y,'px')
+      +g('tip height',sv.z_cm,sv.z_target_cm,0.4,' cm');
+  } else if(sv){ $('servo').innerHTML=`<div class=small>last approach: ${sv.iteration+1} iterations, final brick ${sv.size} px, tip ${sv.z_cm} cm</div>`; }
+  else $('servo').textContent='not in the approach phase';
+  const ev=(j.events||[]).slice().reverse();
+  $('events').innerHTML=ev.length?ev.map(e=>{ const bad=/STALL|LOAD|FREEZE|ESTOP/.test(e.kind);
+    return `<div class="ev ${bad?'bad':'warn'}"><span class=t>${e.time}</span><span class=k>${e.kind}</span><span>${e.msg}</span></div>`;}).join(''):'none yet';
+}
 function spd(){return document.getElementById('spd').value}
 function step(j,d){c('goal&j='+j+'&v='+d+'&rel=1&speed='+spd())}
 function absGoal(j,v){c('goal&j='+j+'&v='+v+'&rel=0&speed='+spd())}
@@ -340,6 +407,7 @@ function tick(){
     $('banner').style.display=j.estop?'block':'none';
 
     for(const k of J) paintJoint(k);
+    paintRoutine(j);
     for(const k of J) push(herr[k], Math.abs(((j.goal||{})[k]??j.present[k])-j.present[k]));
     push(hz, f.tip_z_cm??null);
     drawSide(); drawCharts();

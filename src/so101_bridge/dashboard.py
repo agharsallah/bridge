@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from . import routines
 from .controller import Controller
 from .floor import FLOOR_MARGIN, GRASP_Z
 from .paths import ESTOP, LOG_FILE
@@ -47,6 +48,11 @@ def make_handler(ctrl: Controller):
                                "tip_z_cm": round(z * 100, 1) if z is not None else None,
                                "arm": ctrl.floor.arm_points(st["present"]) if st.get("present") else None,
                                "margin_cm": FLOOR_MARGIN * 100, "grasp_cm": GRASP_Z * 100}
+                with ctrl.lock:
+                    st["progress"] = json.loads(json.dumps(ctrl.progress, default=str))
+                    st["events"] = list(ctrl.events)
+                st["preflight"] = ctrl.preflight(st, blob)
+                st["routines"] = routines.catalog()
                 body = json.dumps(st).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             elif u.path in ("/top.mjpg", "/wrist.mjpg"):
@@ -92,6 +98,7 @@ def make_handler(ctrl: Controller):
                 elif a == "hold": ctrl.abort_auto("HOLD button"); ctrl.request({"action": "hold", "src": "web"})
                 elif a == "release": ctrl.abort_auto("RELEASE button"); ctrl.request({"action": "release", "src": "web"})
                 elif a == "auto": ctrl.start_auto()
+                elif a == "routine": ctrl.start_routine(g("name", "pick_place"))
                 elif a == "abort": ctrl.abort_auto("ABORT button"); ctrl.request({"action": "hold", "src": "web"})
                 self.send_response(204); self.end_headers()
             else:

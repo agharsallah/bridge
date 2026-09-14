@@ -6,12 +6,12 @@ Split out of the control loop so the loop file contains nothing but the 30 Hz cy
 import json
 import time
 
-from lerobot.cameras.opencv import OpenCVCameraConfig
-from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
-
 from .paths import LIMITS_FILE
 from .settings import (
     CAL_MARGIN_DEG,
+    CAM_FPS,
+    CAM_H,
+    CAM_W,
     CAMS,
     JOINTS,
     MOTOR_ACCEL,
@@ -24,19 +24,27 @@ from .settings import (
 from .util import log
 
 
-class QuietFollower(SOFollower):
-    """SOFollower whose configure() is a no-op: lerobot's briefly disables torque and the arm sags.
+def _lerobot():
+    """Import lerobot only when an arm is actually connected, so the package (and its tests) load without it."""
+    from lerobot.cameras.opencv import OpenCVCameraConfig
+    from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
 
-    The gains it would have written are applied by :func:`configure_motors` instead.
-    """
+    class QuietFollower(SOFollower):
+        """SOFollower whose configure() is a no-op: lerobot's briefly disables torque and the arm sags.
 
-    def configure(self) -> None:
-        pass
+        The gains it would have written are applied by :func:`configure_motors` instead.
+        """
+
+        def configure(self) -> None:
+            pass
+
+    return OpenCVCameraConfig, SOFollowerRobotConfig, QuietFollower
 
 
 def connect(attempts: int = 5):
     """Connect to the arm and its cameras, retrying bus hiccups. Torque is never dropped."""
-    cams = {n: OpenCVCameraConfig(index_or_path=i, fps=30, width=1920, height=1080) for n, i in CAMS.items()}
+    OpenCVCameraConfig, SOFollowerRobotConfig, QuietFollower = _lerobot()
+    cams = {n: OpenCVCameraConfig(index_or_path=i, fps=CAM_FPS, width=CAM_W, height=CAM_H) for n, i in CAMS.items()}
     cfg = SOFollowerRobotConfig(port=PORT, id=ROBOT_ID, cameras=cams, disable_torque_on_disconnect=False,
                                 max_relative_target=5.0)
     robot = QuietFollower(cfg)

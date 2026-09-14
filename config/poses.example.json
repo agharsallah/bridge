@@ -1,0 +1,24 @@
+{
+ "_comment": "Copy to config/poses.json to replace a taught path. Keys: UNFOLD, DESCENT, LIFT, TRANSIT, RETREAT. The last TRANSIT waypoint is the drop pose.",
+ "TRANSIT": [
+  {
+   "shoulder_pan": 5
+  },
+  {
+   "shoulder_lift": 13.8,
+   "elbow_flex": 62.3,
+   "wrist_flex": 5
+  },
+  {
+   "shoulder_lift": 18.2,
+   "elbow_flex": 54.1,
+   "wrist_flex": 5
+  },
+  {
+   "shoulder_pan": 6.8,
+   "shoulder_lift": 26.5,
+   "elbow_flex": 47.7,
+   "wrist_flex": 5
+  }
+ ]
+}

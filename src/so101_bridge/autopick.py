@@ -13,6 +13,7 @@ import traceback
 
 from .floor import GRASP_Z
 from .poses import RETREAT, TRANSIT, UNFOLD, load_rest
+from .routines import routine
 from .settings import (
     CY_TARGET,
     LIFT_MAX,
@@ -44,18 +45,27 @@ def _servo_pan(ctrl, target_x, tries=3):
     return ctrl.see("wrist")
 
 
+PHASES = ("preflight", "ready", "align", "approach", "grasp", "lift", "carry", "release", "retreat", "done")
+
+
+@routine("pick_place", label="AUTO PICK — brick into the tin",
+         description="Find the yellow brick with the wrist camera, descend by the floor model, grasp, carry to the taught drop pose, release, return to rest.",
+         phases=PHASES)
 def run(ctrl):
     def fail(msg):
         log(f"AUTO FAILED: {msg}"); ctrl.routine_status = f"failed: {msg}"
+        ctrl.phase("failed", msg)
         ctrl.request({"action": "hold", "src": "auto"})
     try:
         ctrl.routine_status = "running"; log("AUTO: start")
+        ctrl.phase("preflight")
         if ctrl.floor.params is None:
             return fail("floor model not taught yet — mark >= 4 table-contact poses first")
         st, _ = ctrl.snapshot()
         if not ctrl.see("top", 3.0) and not ctrl.see("wrist", 1.0):
             return fail("no yellow brick visible in either camera")
         # 1) to READY (looking down, gripper open): the proven unfold path from rest, or capped steps from anywhere
+        ctrl.phase("ready", "unfold from rest" if st["present"]["shoulder_lift"] < -35 else "capped steps from current pose")
         if st["present"]["shoulder_lift"] < -35:
             for wp in UNFOLD:
                 if not ctrl.goto(wp, 5.0): return fail("unfold interrupted")
@@ -66,8 +76,10 @@ def run(ctrl):
         # 2+3) servo down to grasp height. Height comes from the FLOOR MODEL (fingertip z), the cameras only
         #      steer: pan <- brick x, elbow <- brick y (unfold = forward). A sudden size collapse is a bad
         #      detection (washed-out colour), never "still far".
-        b = ctrl._servo_pan(SERVO_X_TOP)
+        ctrl.phase("align", "pan servo on the wrist camera")
+        b = _servo_pan(ctrl, SERVO_X_TOP)
         if not b: return fail("brick not seen by wrist camera at READY")
+        ctrl.phase("approach", "descend by floor model, cameras steer")
         last_size, bad = b["long"], 0; grasped_height = False
         for it in range(SERVO_MAX_ITERS):
             b = ctrl.see("wrist", 2.0)
@@ -86,6 +98,9 @@ def run(ctrl):
             ey = CY_TARGET - b["cy"]
             if abs(ey) > 60:
                 goal["elbow_flex"] = pr["elbow_flex"] + max(-6.0, min(6.0, -REACH_GAIN_DEG_PER_PX * ey))
+            ctrl.servo_progress(iteration=it, x=b["cx"], y=b["cy"], size=b["long"], z_cm=round(z * 100, 1),
+                                ex=int(ex), ey=int(ey), x_target=SERVO_X_BOTTOM, y_target=CY_TARGET,
+                                z_target_cm=round(GRASP_Z * 100, 1), tol_x=SERVO_TOL, tol_y=90)
             if z <= GRASP_Z + 0.004 and abs(ex) <= SERVO_TOL and abs(ey) <= 90:
                 grasped_height = True
                 log(f"AUTO: at grasp height (tip z {z * 100:.1f} cm), brick size {b['long']}px"); break
@@ -109,6 +124,7 @@ def run(ctrl):
             return fail(f"at grasp height but the brick looks too small ({last_size}px) — not between the jaws?")
         time.sleep(0.5)
         # 4) grasp and verify
+        ctrl.phase("grasp", f"close to 10, expect stall ~20 (brick {last_size}px)")
         g = ctrl.gripper_to(10, 15.0)
         if g is None: return fail("grasp interrupted")
         if g < 14:
@@ -117,19 +133,24 @@ def run(ctrl):
             return fail("missed the brick")
         log(f"AUTO: holding (gripper stalled at {g:.1f})")
         # 5) lift (relative: shoulder back = up), then transit to the confirmed drop pose in capped steps
+        ctrl.phase("lift", f"holding, gripper {g:.1f}")
         for _ in range(2):
             st, _ = ctrl.snapshot(); pr = st["present"]
             up = {"shoulder_lift": pr["shoulder_lift"] - 10.0, "wrist_flex": pr["wrist_flex"] + 5.0}
             if not ctrl.goto(up, 4.0): return fail("lift interrupted")
+        ctrl.phase("carry", "to the taught drop pose")
         if not ctrl.goto_far({**TRANSIT[-1]}, 4.0): return fail("carry interrupted")
+        ctrl.phase("release", "1 s pause for a human STOP, then open")
         time.sleep(1.0)                                                # last chance to STOP before release
         if ctrl.routine_abort.is_set(): return fail("aborted before release")
         ctrl.gripper_to(60, 25.0); time.sleep(0.8); log("AUTO: released")
         # 6) retreat to the configured rest pose
+        ctrl.phase("retreat", "fold back to rest.json")
         for wp in RETREAT[:-1]:
             if not ctrl.goto(wp, 5.0): return fail("retreat interrupted")
         if not ctrl.goto_far(load_rest(), 4.0): return fail("final rest move interrupted")
-        ctrl.routine_status = "done"; log("AUTO: done")
+        ctrl.routine_status = "done"; ctrl.phase("done"); log("AUTO: done")
     except Exception:
         log("AUTO exception:\n" + traceback.format_exc()); ctrl.routine_status = "error"
+        ctrl.phase("error", traceback.format_exc().strip().splitlines()[-1])
         ctrl.request({"action": "hold", "src": "auto"})

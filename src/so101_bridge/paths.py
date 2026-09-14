@@ -20,6 +20,8 @@ REST_FILE = CONFIG_DIR / "rest.json"
 FLOOR_FILE = CONFIG_DIR / "floor_points.json"
 FLOOR_CFG = CONFIG_DIR / "floor_config.json"   # optional: {"z0": shoulder height (m), "L1", "L2", "L3"}
 WP_FILE = CONFIG_DIR / "waypoints.json"
+SETTINGS_FILE = CONFIG_DIR / "settings.json"   # optional overrides of settings.py (see config/settings.example.json)
+POSES_FILE = CONFIG_DIR / "poses.json"         # optional overrides of the taught paths in poses.py
 
 # --- runtime (ignored)
 CMD_DIR = VAR_DIR / "cmd"
