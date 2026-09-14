@@ -1,11 +1,146 @@
 {
  "paper": {
-  "corners": {},
+  "corners": {
+   "A": {
+    "shoulder_pan": -32.18,
+    "shoulder_lift": 111.03,
+    "elbow_flex": -43.91,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.24
+   },
+   "B": {
+    "shoulder_pan": 0.88,
+    "shoulder_lift": 111.3,
+    "elbow_flex": -43.74,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "C": {
+    "shoulder_pan": -41.32,
+    "shoulder_lift": 59.87,
+    "elbow_flex": 21.41,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "D": {
+    "shoulder_pan": 9.58,
+    "shoulder_lift": 52.22,
+    "elbow_flex": 29.49,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.24
+   }
+  },
   "extra": [],
   "width_cm": 21.0,
   "height_cm": 14.8
  },
- "stations": {},
+ "stations": {
+  "blue": {
+   "dip": {
+    "shoulder_pan": 13.89,
+    "shoulder_lift": 81.0,
+    "elbow_flex": -4.18,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "hover": {
+    "shoulder_pan": 13.89,
+    "shoulder_lift": 77.98,
+    "elbow_flex": -3.65,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "kind": "color",
+   "rgb": [
+    30,
+    90,
+    200
+   ]
+  },
+  "green": {
+   "dip": {
+    "shoulder_pan": 24.09,
+    "shoulder_lift": 54.82,
+    "elbow_flex": 27.48,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "hover": {
+    "shoulder_pan": 24.09,
+    "shoulder_lift": 50.64,
+    "elbow_flex": 28.26,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "kind": "color",
+   "rgb": [
+    40,
+    160,
+    70
+   ]
+  },
+  "yellow": {
+   "dip": {
+    "shoulder_pan": 35.6,
+    "shoulder_lift": 51.5,
+    "elbow_flex": 30.96,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "hover": {
+    "shoulder_pan": 35.6,
+    "shoulder_lift": 47.12,
+    "elbow_flex": 31.78,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "kind": "color",
+   "rgb": [
+    230,
+    200,
+    40
+   ]
+  },
+  "red": {
+   "dip": {
+    "shoulder_pan": 39.82,
+    "shoulder_lift": 68.69,
+    "elbow_flex": 12.2,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "hover": {
+    "shoulder_pan": 39.82,
+    "shoulder_lift": 65.14,
+    "elbow_flex": 12.88,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "kind": "color",
+   "rgb": [
+    200,
+    30,
+    30
+   ]
+  },
+  "water": {
+   "dip": {
+    "shoulder_pan": 59.6,
+    "shoulder_lift": 52.48,
+    "elbow_flex": 26.99,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "hover": {
+    "shoulder_pan": 59.6,
+    "shoulder_lift": 48.62,
+    "elbow_flex": 27.47,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
+   },
+   "kind": "water"
+  }
+ },
  "brush": {
   "hover_cm": 1.5,
   "press_cm": 0.15,
@@ -16,5 +151,5 @@
   "dip_dwell_s": 1.0,
   "rinse_dips": 2
  },
- "updated": "2026-09-14 15:45:52"
+ "updated": "2026-09-14 16:23:17"
 }
