@@ -17,6 +17,43 @@ Finder), or `touch ESTOP` in any terminal. Clear it with **RESUME** or `scripts/
 agent manual: startup, the command interface, the state format, what every log line means, and what
 to do when something goes wrong.
 
+## Screenshots
+
+| Control dashboard (`/`) | Painting page (`/paint`) |
+| --- | --- |
+| [![control dashboard](docs/img/dashboard.png)](docs/img/dashboard.png) | [![painting page](docs/img/paint.png)](docs/img/paint.png) |
+
+Status chips, camera streams, to-scale floor-model side view, per-joint tracks/load/charts, routine and
+guard-event panels, log tail (left); paper/station teaching, tool-model fit, reachability map, picture →
+program compiler and saved programs (right). Rendered with mock state, no arm attached — real values fill
+in once the daemon is running.
+
+## Documentation
+
+| File | What it covers |
+| --- | --- |
+| [`docs/operations.md`](docs/operations.md) | **the manual.** Start/stop, safety rules the daemon enforces, dashboard panels, standard procedures (auto pick, rest, jogging, teaching), the full command/state/log interface, joint-geometry cheat sheet, failure → remedy table, file layout |
+| [`docs/learnings.md`](docs/learnings.md) | why things are the way they are: hardware/firmware quirks, joint conventions, the floor model, vision tuning — the reasoning behind the rules in `operations.md` |
+| [`docs/metadata.json`](docs/metadata.json) | every calibrated number, machine-readable: motor IDs/gains, camera indices, joint limits and conventions, guard thresholds, floor-model fit, vision gates, known poses, painting tuning |
+| [`docs/decision-log.json`](docs/decision-log.json) | chronological log of tuning decisions and why each was made |
+| [`docs/motion-log-pick-place.md`](docs/motion-log-pick-place.md) | run-by-run log of pick-and-place attempts |
+
+## Helpers
+
+| Command | Effect |
+| --- | --- |
+| `make run` (`uv run so101-bridge`) | start the daemon; dashboard on http://localhost:8765 |
+| `make test` (`uv run pytest -q`) | unit tests, no hardware needed |
+| `make lint` / `make fmt` | `ruff check` / `ruff check --fix` |
+| `make stop` (`touch ESTOP`) | freeze the arm right now, from any terminal |
+| `make resume` (`rm -f ESTOP`) | clear the emergency stop |
+| `make clean` | drop `var/` runtime artifacts (keeps `config/`) |
+| `scripts/STOP.command` / `RESUME.command` / `RELEASE.command` | double-click in Finder: STOP, RESUME, torque off |
+| `scripts/paint.sh <plan> [from_stroke]` | compile `paintings/<plan>.plan.json` and run it without a browser or agent; `DRY=1` runs the same moves at hover height (see `docs/operations.md` §11) |
+
+Emergency stop is always a `touch ESTOP` away at the repository root, and always cleared with `make resume` or the
+dashboard **RESUME** button — restarting the bridge never drops torque, the arm holds its pose through a restart.
+
 ## Layout
 
 | Path | What it holds |
