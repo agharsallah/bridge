@@ -35,6 +35,10 @@ canvas{width:100%;display:block;background:#0b0f14;border:1px solid var(--line);
 .step.now{border-color:var(--accent);color:var(--ink);background:#0d3a66}.step.done{border-color:#2ea043;color:#9be9a8}
 a{color:var(--accent)}kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px}
 img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-rendering:pixelated;background:#fff}
+.cams{display:grid;gap:10px;grid-template-columns:1fr 1fr}@media(max-width:760px){.cams{grid-template-columns:1fr}}
+.cam{position:relative;background:#000;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.cam img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}
+.cam .tag{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.62);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim)}
 </style>
 
 <header>
@@ -60,6 +64,14 @@ img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-ren
 </header>
 
 <main>
+  <section class="card span12">
+    <h2>Live cameras <span class=small style="text-transform:none;letter-spacing:0">— overhead (tower) and gripper (brush) views, same streams as the control dashboard</span></h2>
+    <div class=cams>
+      <div class=cam><img src=/top.mjpg alt="top camera"><div class=tag>top — overhead</div></div>
+      <div class=cam><img src=/wrist.mjpg alt="wrist camera"><div class=tag>wrist — brush</div></div>
+    </div>
+  </section>
+
   <section class="card span6">
     <h2>1 · Paper</h2>
     <div class=hrow>width <input id=pw type=number step=0.1> cm &nbsp; height <input id=ph type=number step=0.1> cm
