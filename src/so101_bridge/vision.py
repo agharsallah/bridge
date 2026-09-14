@@ -41,7 +41,7 @@ def find_yellow(bgr, hmin=None, hmax=None, smin=None, vmin=None, min_area=None):
 def render(rgb, cam, mode, auto_status, show_servo_guides=False):
     """Downscale a camera frame, detect the brick, draw the overlay.
 
-    Returns ``(jpeg_bytes | None, blob | None)`` where blob is the detection in frame coordinates.
+    Returns ``(jpeg_bytes | None, blob | None, bgr_frame)`` where blob is the detection in frame coordinates.
     """
     bgr = cv2.cvtColor(cv2.resize(rgb, (FRAME_W, FRAME_H), interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2BGR)
     b = find_yellow(bgr)
@@ -54,4 +54,4 @@ def render(rgb, cam, mode, auto_status, show_servo_guides=False):
             cv2.line(bgr, (x, 0), (x, FRAME_H), (80, 80, 80), 1)
     cv2.putText(bgr, f"{cam}  {mode}  auto:{auto_status}", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-    return (buf.tobytes() if ok else None), b
+    return (buf.tobytes() if ok else None), b, bgr

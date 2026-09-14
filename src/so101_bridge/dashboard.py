@@ -22,6 +22,7 @@ from .paint import workspace as paint_ws
 from .paths import ESTOP, LOG_FILE
 from .settings import HTTP_PORT, JOINTS
 from .util import log
+from .video import VIDEO_DIR, VideoRecorder
 
 PAGE = (Path(__file__).parent / "web" / "dashboard.html").read_bytes()
 PAINT_PAGE = (Path(__file__).parent / "web" / "paint.html").read_bytes()
@@ -39,6 +40,7 @@ def paint_state(ctrl):
     ws = paint_ws.load()
     tool = paint_kin.ToolModel(ctrl.floor, ws, st.get("limits") or {})
     out = {"workspace": ws, "status": paint_ws.status(ws), "tool": tool.summary(), "programs": paint_program.catalog(),
+           "video": ctrl.video.status(), "videos": VideoRecorder.catalog(),
            "progress": None, "auto": ctrl.routine_status, "mode": st.get("mode"), "estop": st.get("estop"),
            "torque_on": st.get("torque_on"), "present": st.get("present"), "time": st.get("time")}
     if tool.ok:
@@ -158,6 +160,7 @@ def make_handler(ctrl: Controller):
                     st["events"] = list(ctrl.events)
                 st["preflight"] = ctrl.preflight(st, blob)
                 st["routines"] = routines.catalog()
+                st["video"] = ctrl.video.status(); st["videos"] = VideoRecorder.catalog()
                 body = json.dumps(st).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             elif u.path in ("/top.mjpg", "/wrist.mjpg"):
@@ -179,6 +182,12 @@ def make_handler(ctrl: Controller):
                 except OSError: lines = []
                 body = json.dumps(lines).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            elif u.path.startswith("/videos/"):
+                f = VIDEO_DIR / Path(u.path).name
+                if not f.is_file(): self.send_response(404); self.end_headers(); return
+                data = f.read_bytes(); ctype = "video/mp4" if f.suffix == ".mp4" else "video/x-msvideo"
+                self.send_response(200); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Disposition", f'inline; filename="{f.name}"'); self.end_headers(); self.wfile.write(data)
             elif u.path == "/paint":
                 self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(PAINT_PAGE))); self.end_headers(); self.wfile.write(PAINT_PAGE)
@@ -205,6 +214,11 @@ def make_handler(ctrl: Controller):
                 elif a == "rest": ctrl.go_rest()
                 elif a == "rest_save": ctrl.rest_save()
                 elif a == "floor_mark": ctrl.floor_mark(float(g("h", 0) or 0))
+                elif a == "video_start": ctrl.video.start(g("name", "clip"))
+                elif a == "video_stop": ctrl.video.stop()
+                elif a == "video_delete":
+                    f = VIDEO_DIR / Path(g("name", "")).name
+                    if f.is_file(): f.unlink(); log(f"VIDEO deleted {f.name}")
                 elif a == "rec_start": ctrl.rec_start()
                 elif a == "rec_stop": ctrl.rec_stop()
                 elif a == "wp_save": ctrl.wp_save(g("name", "").strip()[:40])

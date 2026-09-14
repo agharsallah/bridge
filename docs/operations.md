@@ -237,3 +237,11 @@ Images: `var/top.jpg`, `var/wrist.jpg` (960×540 JPEG, ~every 1.5 s, with detect
 - Safety notes: the floor guard protects the *fingertips*; the brush tip is planned by the tool model
   (press depth `brush.press_cm`, default 1.5 mm). Validate with the border dry run and a DRY program before painting.
   Stations are visited via an "up" pose (shoulder −10°) so the brush does not sweep the paper.
+
+
+## Added in 3.6 — video recording
+
+- Both processed camera feeds (with overlays) are tiled side by side into `var/videos/<time>_<name>.mp4` at ~10 fps.
+- Start/stop from the **● REC VIDEO** button on either page or `/cmd?a=video_start&name=…` / `a=video_stop`;
+  every routine (pick, paint, dry run) records automatically while it runs (`AUTO_RECORD_ROUTINES`, settings.json).
+- `/state.video` = current recording {file, seconds, frames, auto}; `/state.videos` = catalogue; clips play/download at `/videos/<file>`.

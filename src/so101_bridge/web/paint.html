@@ -65,7 +65,8 @@ img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-ren
 
 <main>
   <section class="card span12">
-    <h2>Live cameras <span class=small style="text-transform:none;letter-spacing:0">— overhead (tower) and gripper (brush) views, same streams as the control dashboard</span></h2>
+    <h2>Live cameras <span class=small style="text-transform:none;letter-spacing:0">— overhead (tower) and gripper (brush) views ·
+      <button id=vrec class=sm onclick="vrec()">● REC VIDEO</button> <span id=vinfo></span> · programs record automatically</span></h2>
     <div class=cams>
       <div class=cam><img src=/top.mjpg alt="top camera"><div class=tag>top — overhead</div></div>
       <div class=cam><img src=/wrist.mjpg alt="wrist camera"><div class=tag>wrist — brush</div></div>
@@ -132,6 +133,7 @@ img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-ren
   <section class="card span6">
     <h2>4 · Programs</h2>
     <table id=programs></table>
+    <details><summary class=small>recordings (var/videos)</summary><div id=videos class=small></div></details>
     <p class=small>Run replays the saved joint poses — no camera or model needed, but the paper and stations must not have moved. Programs marked DRY stay at hover height.</p>
   </section>
 
@@ -152,6 +154,10 @@ function pc(a){fetch('/paint/cmd?a='+a).then(()=>setTimeout(tick,250)).catch(()=
 addEventListener('keydown',e=>{ if(e.key==='Escape'){ c('stop'); e.preventDefault(); } });
 let S={}, lastPlan=null, liveProg=null, liveName=null;
 
+function vrec(){ if(S.video) c('video_stop'); else { const n=prompt('clip name','painting'); if(n!==null) c('video_start&name='+encodeURIComponent(n)); } }
+function paintVideos(){ const v=S.video, b=$('vrec'); b.textContent=v?'■ STOP VIDEO':'● REC VIDEO'; b.style.background=v?'var(--bad)':'';
+  $('vinfo').textContent=v?`recording ${v.file} · ${v.seconds} s${v.auto?' (auto)':''}`:'';
+  $('videos').innerHTML=(S.videos||[]).map(x=>`<div class=kv><a href="/videos/${x.file}" target=_blank>${x.file}</a><span>${(x.bytes/1048576).toFixed(1)} MB · ${x.modified}</span></div>`).join('')||'none yet'; }
 function hex2rgb(h){return [1,3,5].map(i=>parseInt(h.slice(i,i+2),16)).join(',')}
 function addStation(){ const n=$('sn').value.trim(); if(!n) return; pc('station_set&name='+encodeURIComponent(n)+'&kind='+$('sk').value+'&rgb='+hex2rgb($('sc').value)); $('sn').value=''; }
 function brushSave(){ const q=[...document.querySelectorAll('#brush input')].map(i=>i.dataset.k+'='+i.value).join('&'); pc('brush&'+q); }
@@ -240,7 +246,7 @@ function tick(){
     $('c_mode').textContent=j.mode||'—'; $('c_torque').textContent=j.torque_on?'on':'off'; $('c_auto').textContent=j.auto||'idle';
     $('c_uv').textContent=j.brush_uv?`${j.brush_uv[0]}, ${j.brush_uv[1]} cm · z ${j.brush_uv[2]} cm`:'—';
     $('banner').style.display=j.estop?'block':'none';
-    paintWorkspace(); drawMap(); paintPrograms(); paintProgress();
+    paintWorkspace(); drawMap(); paintPrograms(); paintProgress(); paintVideos();
   }).catch(()=>{});
 }
 tick(); setInterval(tick,700);

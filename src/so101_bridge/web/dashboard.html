@@ -138,7 +138,8 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 
 <main>
   <section class="card span8">
-    <h2>Cameras</h2>
+    <h2>Cameras <span class=small style="text-transform:none;letter-spacing:0;margin-left:10px">
+      <button id=vrec class=sm onclick="vrec()">● REC VIDEO</button> <span id=vinfo></span> · routines record automatically</span></h2>
     <div class=cams>
       <div class=cam><img src=/top.mjpg alt="top camera"><div class=tag>top — overhead</div>
         <div class=det><span id=det_top class=no>no brick detected</span><span id=area_top class=small></span></div></div>
@@ -207,6 +208,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
   <section class="card span6">
     <h2>Log <span class=small style="text-transform:none;letter-spacing:0">— var/bridge.log, newest last</span></h2>
     <div id=log></div>
+    <details style="margin-top:10px"><summary>recordings (var/videos)</summary><div id=videos class=small></div></details>
     <details style="margin-top:10px"><summary>raw state JSON</summary><pre id=raw class=mono></pre></details>
   </section>
 </main>
@@ -260,6 +262,12 @@ function spd(){return document.getElementById('spd').value}
 function step(j,d){c('goal&j='+j+'&v='+d+'&rel=1&speed='+spd())}
 function absGoal(j,v){c('goal&j='+j+'&v='+v+'&rel=0&speed='+spd())}
 function rec(){c(st.rec?'rec_stop':'rec_start')}
+function vrec(){ if(st.video) c('video_stop'); else { const n=prompt('clip name','clip'); if(n!==null) c('video_start&name='+encodeURIComponent(n)); } }
+function paintVideos(j){
+  const v=j.video, b=$('vrec'); b.className='sm '+(v?'on':''); b.textContent=v?'■ STOP VIDEO':'● REC VIDEO';
+  $('vinfo').textContent=v?`recording ${v.file} · ${v.seconds} s · ${v.frames} frames${v.auto?' (auto)':''}`:'';
+  $('videos').innerHTML=(j.videos||[]).map(x=>`<div class=kv><a href="/videos/${x.file}" target=_blank>${x.file}</a><span>${(x.bytes/1048576).toFixed(1)} MB · ${x.modified} <button class=sm onclick="if(confirm('delete ${x.file}?'))c('video_delete&name=${x.file}')">✕</button></span></div>`).join('')||'none yet';
+}
 const $=id=>document.getElementById(id);
 const fix=(v,n=1)=>(v===null||v===undefined||Number.isNaN(v))?'—':Number(v).toFixed(n);
 
@@ -407,7 +415,7 @@ function tick(){
     $('banner').style.display=j.estop?'block':'none';
 
     for(const k of J) paintJoint(k);
-    paintRoutine(j);
+    paintRoutine(j); paintVideos(j);
     for(const k of J) push(herr[k], Math.abs(((j.goal||{})[k]??j.present[k])-j.present[k]));
     push(hz, f.tip_z_cm??null);
     drawSide(); drawCharts();

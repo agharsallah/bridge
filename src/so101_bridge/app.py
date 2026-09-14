@@ -238,15 +238,17 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
 
             # ---- vision + streams
             if loop_i % VISION_EVERY == 0:
-                blobs = {}
+                blobs, frames = {}, {}
                 for n in CAMS:
-                    jpeg, b = vision.render(obs[n], n, mode, ctrl.routine_status,
-                                            show_servo_guides=(n == "wrist" and ctrl.routine_status == "running"))
+                    jpeg, b, bgr = vision.render(obs[n], n, mode, ctrl.routine_status,
+                                                 show_servo_guides=(n == "wrist" and ctrl.routine_status == "running"))
+                    frames[n] = bgr
                     if b: blobs[n] = b
                     if jpeg:
                         with ctrl.lock: ctrl.jpeg[n] = jpeg
                         if loop_i % (VISION_EVERY * 5) == 0: atomic_write(SNAPSHOT[n], jpeg)
                 with ctrl.lock: ctrl.blob = blobs
+                ctrl.video.write(frames)
 
             if loop_i % 3 == 0:            # ~10 Hz trajectory log while recording
                 ctrl.rec_write({"time": time.strftime("%H:%M:%S"), "mode": mode, "torque": torque_on,

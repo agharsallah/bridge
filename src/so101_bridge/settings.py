@@ -52,6 +52,8 @@ TARGET_SOLIDITY, TARGET_FILL = 0.7, 0.5
 FRAME_W, FRAME_H = 960, 540
 JPEG_QUALITY = 75
 
+AUTO_RECORD_ROUTINES = True   # record both cameras to var/videos/ while a routine runs
+
 # ------------------------------------------------------- overrides from config/settings.json
 OVERRIDDEN = []
 

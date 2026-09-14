@@ -10,10 +10,12 @@ import threading
 import time
 from collections import deque
 
+from . import settings
 from .floor import FloorModel
 from .paths import REC_DIR, REST_FILE, WP_FILE
 from .poses import RETREAT, P, load_rest
 from .util import log
+from .video import VideoRecorder
 
 
 class Controller:
@@ -30,6 +32,7 @@ class Controller:
         self.routine_status = "idle"
         self.rec_file, self.rec_t0, self.rec_name = None, 0.0, None
         self.floor = FloorModel()
+        self.video = VideoRecorder()
         # --- observability: what the routine is doing, what the guards did, whether we may start
         self.progress = self._fresh_progress()
         self.events = deque(maxlen=60)           # guard / safety events: {"t", "time", "kind", "msg"}
@@ -167,6 +170,8 @@ class Controller:
         with self.lock:
             self.progress = self._fresh_progress(name); self.progress["started"] = time.time()
         self.routine_status = "running"
+        if settings.AUTO_RECORD_ROUTINES and self.video.status() is None:
+            self.video.start(name, auto=True)
 
         def run():
             try:
@@ -174,6 +179,8 @@ class Controller:
             finally:
                 with self.lock:
                     self.progress["finished"] = time.time()
+                if self.video.auto:
+                    self.video.stop()
         self.routine_thread = threading.Thread(target=run, daemon=True, name=f"routine-{name}")
         self.routine_thread.start()
         return True

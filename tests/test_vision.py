@@ -33,6 +33,6 @@ def test_ignores_a_blob_below_the_area_threshold():
 
 def test_render_returns_jpeg_and_blob():
     rgb = cv2.cvtColor(frame_with_brick(), cv2.COLOR_BGR2RGB)
-    jpeg, blob = render(rgb, "wrist", "hold", "idle", show_servo_guides=True)
+    jpeg, blob, bgr = render(rgb, "wrist", "hold", "idle", show_servo_guides=True)
     assert jpeg is not None and jpeg[:2] == b"\xff\xd8"      # JPEG SOI marker
-    assert blob is not None
+    assert blob is not None and bgr.shape[:2] == (540, 960)
