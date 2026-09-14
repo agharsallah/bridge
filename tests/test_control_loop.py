@@ -161,3 +161,32 @@ def test_register_write_is_whitelisted(rig):
     written = [w for w in robot.bus.writes if w[0] in ("Torque_Enable", "Firmware_Version")]
     assert ("Torque_Enable", "gripper", 1) in written
     assert not [w for w in written if w[0] == "Firmware_Version"]
+
+
+def test_path_follows_all_points_without_stopping(rig):
+    robot, ctrl, limits, tmp = rig
+    pts = [{"shoulder_pan": 2.0}, {"shoulder_pan": 4.0, "wrist_roll": 3.0}, {"shoulder_pan": 6.0}]
+    ctrl.request({"action": "path", "points": pts, "speed": 30.0, "src": "test"})
+    app.control_loop(robot, ctrl, limits, max_iters=60)
+    st = state_of(tmp)
+    assert robot.pos["shoulder_pan"] == pytest.approx(6.0, abs=0.1)
+    assert robot.pos["wrist_roll"] == pytest.approx(3.0, abs=0.1)
+    assert st["mode"] == "reached"
+    # intermediate waypoint was passed through (the commanded pan visited ~4 on the way)
+    assert any(abs(a["shoulder_pan.pos"] - 4.0) < 0.6 for a in robot.actions)
+
+
+def test_path_points_are_step_capped_relative_to_the_previous_point(rig):
+    robot, ctrl, limits, tmp = rig
+    ctrl.request({"action": "path", "points": [{"shoulder_pan": 10.0}, {"shoulder_pan": 40.0}], "speed": 30.0, "src": "test"})
+    app.control_loop(robot, ctrl, limits, max_iters=80)
+    assert robot.pos["shoulder_pan"] == pytest.approx(10.0 + MAX_STEP_DEG, abs=0.1)
+
+
+def test_hold_cancels_a_running_path(rig):
+    robot, ctrl, limits, tmp = rig
+    ctrl.request({"action": "path", "points": [{"shoulder_pan": 5.0}, {"shoulder_pan": 10.0}], "speed": 5.0, "src": "test"})
+    app.control_loop(robot, ctrl, limits, max_iters=3)
+    ctrl.request({"action": "hold", "src": "test"})
+    app.control_loop(robot, ctrl, limits, max_iters=30)
+    assert robot.pos["shoulder_pan"] < 5.0 and state_of(tmp)["mode"] == "hold"

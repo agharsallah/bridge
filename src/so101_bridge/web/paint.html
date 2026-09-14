@@ -1,0 +1,235 @@
+<!doctype html>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>SO-101 bridge — painting</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c222b;--line:#2a313c;--ink:#e6edf3;--dim:#8b949e;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--accent:#58a6ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
+h1{font-size:15px;margin:0;font-weight:600}h2{font-size:11px;margin:0 0 10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+h3{font-size:12px;margin:12px 0 6px;color:var(--ink)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;z-index:20;background:rgba(13,17,23,.93);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:10px 16px}
+.hrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.chip{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:12px}
+.chip .k{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.8px}.chip b{font-family:ui-monospace,Menlo,monospace}
+#banner{display:none;margin:10px 0 0;background:var(--bad);color:#fff;font-weight:700;padding:10px 14px;border-radius:8px;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.55}}
+.bar{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+button{font:600 13px/1 ui-sans-serif,system-ui;padding:9px 13px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:var(--panel2);cursor:pointer}
+button:hover{filter:brightness(1.25)}button.sm{padding:5px 8px;font-size:12px;font-weight:500}button:disabled{opacity:.4;cursor:not-allowed}
+#stop{background:var(--bad);border-color:#ff6a60;color:#fff;font-size:16px;padding:12px 26px}#resume{background:#1a4d2e}#abort{background:#4a2a63}
+#release{background:#6b3410}#engage{background:#0f4d4a}.primary{background:#0d3a66;border-color:#1f6feb}
+main{padding:14px 16px 28px;display:grid;gap:14px;grid-template-columns:repeat(12,1fr)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.span12{grid-column:span 12}.span6{grid-column:span 6}.span4{grid-column:span 4}.span8{grid-column:span 8}
+@media(max-width:1100px){.span8,.span6,.span4{grid-column:span 12}}
+input,select{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 8px;font:12px ui-monospace,Menlo,monospace}
+input[type=number]{width:74px}input[type=color]{padding:0;width:34px;height:28px}
+table{border-collapse:collapse;width:100%}td,th{padding:5px 6px;border-top:1px solid var(--line);font-size:12px;text-align:left}th{color:var(--dim);font-weight:500;border-top:0}
+.small{color:var(--dim);font-size:11px}.ok{color:var(--ok)}.no{color:var(--bad)}.warn{color:var(--warn)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:12px}.kv span:first-child{color:var(--dim)}
+canvas{width:100%;display:block;background:#0b0f14;border:1px solid var(--line);border-radius:8px}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;margin-right:6px;border:1px solid #0008}
+.prog{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden;margin:6px 0}.prog i{display:block;height:100%;background:var(--accent)}
+.steps{display:flex;gap:6px;flex-wrap:wrap}.step{padding:4px 8px;border-radius:6px;border:1px solid var(--line);font-size:11px;color:var(--dim)}
+.step.now{border-color:var(--accent);color:var(--ink);background:#0d3a66}.step.done{border-color:#2ea043;color:#9be9a8}
+a{color:var(--accent)}kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px}
+img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-rendering:pixelated;background:#fff}
+</style>
+
+<header>
+  <div class=hrow>
+    <h1>SO-101 — painting <span class=small>· <a href="/">control dashboard</a></span></h1>
+    <div class=chips>
+      <div class=chip><span class=k>mode</span><b id=c_mode>—</b></div>
+      <div class=chip><span class=k>torque</span><b id=c_torque>—</b></div>
+      <div class=chip><span class=k>routine</span><b id=c_auto>idle</b></div>
+      <div class=chip><span class=k>brush on paper</span><b id=c_uv>—</b></div>
+      <div class=chip><span class=k>workspace</span><b id=c_ws>—</b></div>
+    </div>
+  </div>
+  <div id=banner>ESTOP ACTIVE — all commands ignored — press RESUME</div>
+  <div class=bar>
+    <button id=stop onclick="c('stop')">STOP</button><button id=resume onclick="c('resume')">RESUME</button>
+    <button onclick="c('hold')">HOLD</button><button id=abort onclick="c('abort')">ABORT</button>
+    <button onclick="c('rest')">GO TO REST</button>
+    <button id=release onclick="if(confirm('Torque OFF (free-drive). Hold the arm — it sags under gravity. Continue?'))c('release')">FREE-DRIVE (torque off)</button>
+    <button id=engage onclick="c('engage')">ENGAGE (torque on, hold)</button>
+    <span class=small><kbd>Esc</kbd> = STOP</span>
+  </div>
+</header>
+
+<main>
+  <section class="card span6">
+    <h2>1 · Paper</h2>
+    <div class=hrow>width <input id=pw type=number step=0.1> cm &nbsp; height <input id=ph type=number step=0.1> cm
+      <button class=sm onclick="pc('paper_size&w='+$('pw').value+'&h='+$('ph').value)">Save size</button></div>
+    <p class=small>Put the brush in the gripper, FREE-DRIVE, place the brush <b>tip on the paper</b> at each corner and mark it. A = top-left, B = top-right, C = bottom-right, D = bottom-left (looking at the paper the way the picture will be oriented).</p>
+    <div class=hrow id=corners></div>
+    <div class=hrow style="margin-top:8px"><span class=small>extra contact at</span> u <input id=eu type=number step=0.1 value=10.5> v <input id=ev type=number step=0.1 value=7.4> cm
+      <button class=sm onclick="pc('mark_extra&u='+$('eu').value+'&v='+$('ev').value)">Mark</button>
+      <button class=sm onclick="if(confirm('Clear all paper marks?'))pc('clear_paper')">Clear paper marks</button></div>
+    <h3>Tool model (fitted from the marks)</h3>
+    <div id=tool class=small>—</div>
+    <div class=hrow style="margin-top:8px"><button class=sm onclick="if(confirm('Dry run: the arm traces the paper border at hover height (no contact). Hand on STOP?'))pc('trace_border')">Dry run: trace paper border</button>
+      <span class=small>validates corners, reach and clearance before any paint</span></div>
+  </section>
+
+  <section class="card span6">
+    <h2>2 · Stations — colours, water, towel</h2>
+    <p class=small>For each: FREE-DRIVE the brush tip into the pan / water / onto the towel and <b>Mark dip</b>; optionally lift it clear and <b>Mark hover</b> (otherwise hover = dip raised by 8°).</p>
+    <table id=stations></table>
+    <div class=hrow style="margin-top:8px">
+      <input id=sn placeholder="name (e.g. red)" size=10>
+      <select id=sk><option value=color>colour</option><option value=water>water</option><option value=towel>towel</option></select>
+      <input id=sc type=color value="#c8281e">
+      <button class=sm onclick="addStation()">Add station</button>
+    </div>
+    <h3>Brush</h3>
+    <div class=hrow id=brush></div>
+  </section>
+
+  <section class="card span4">
+    <h2>Paper map — reach &amp; live brush position</h2>
+    <canvas id=map height=260></canvas>
+    <div class=small style="margin-top:6px">green = reachable at paper height, red = out of reach or beyond joint limits; white dot = brush tip now (by the tool model)</div>
+  </section>
+
+  <section class="card span8">
+    <h2>3 · Picture → program</h2>
+    <div class=hrow>
+      <input type=file id=pic accept="image/*">
+      <input id=pname placeholder="program name" size=14>
+      margin <input id=margin type=number step=0.1 value=1.0> cm
+      detail <input id=detail type=number step=0.1 min=0.3 max=3 value=1.0>
+      white ≥ <input id=white type=number step=5 value=225>
+      max stroke <input id=maxs type=number step=1 value=8> cm
+    </div>
+    <div class=hrow style="margin-top:8px">
+      <button class=primary onclick="plan(false)">Plan &amp; compile</button>
+      <button onclick="plan(true)">Compile as DRY RUN (hover height)</button>
+      <span id=planmsg class=small></span>
+    </div>
+    <div class=hrow style="margin-top:10px;align-items:flex-start">
+      <div style="flex:1 1 260px"><div class=small>quantised picture</div><img id=prev class=prev alt=""></div>
+      <div style="flex:1 1 260px"><div class=small>strokes on paper</div><canvas id=strokes height=220></canvas></div>
+      <div style="flex:1 1 200px" id=planstats class=small></div>
+    </div>
+  </section>
+
+  <section class="card span6">
+    <h2>4 · Programs</h2>
+    <table id=programs></table>
+    <p class=small>Run replays the saved joint poses — no camera or model needed, but the paper and stations must not have moved. Programs marked DRY stay at hover height.</p>
+  </section>
+
+  <section class="card span6">
+    <h2>Progress</h2>
+    <div class=steps id=phases></div>
+    <div id=ptitle class=small style="margin-top:6px">no program running</div>
+    <div class=prog><i id=pbar style="width:0"></i></div>
+    <canvas id=live height=240></canvas>
+  </section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const fix=(v,n=1)=>(v==null||Number.isNaN(v))?'—':Number(v).toFixed(n);
+function c(a){fetch('/cmd?a='+a).catch(()=>{})}
+function pc(a){fetch('/paint/cmd?a='+a).then(()=>setTimeout(tick,250)).catch(()=>{})}
+addEventListener('keydown',e=>{ if(e.key==='Escape'){ c('stop'); e.preventDefault(); } });
+let S={}, lastPlan=null, liveProg=null, liveName=null;
+
+function hex2rgb(h){return [1,3,5].map(i=>parseInt(h.slice(i,i+2),16)).join(',')}
+function addStation(){ const n=$('sn').value.trim(); if(!n) return; pc('station_set&name='+encodeURIComponent(n)+'&kind='+$('sk').value+'&rgb='+hex2rgb($('sc').value)); $('sn').value=''; }
+function brushSave(){ const q=[...document.querySelectorAll('#brush input')].map(i=>i.dataset.k+'='+i.value).join('&'); pc('brush&'+q); }
+
+function paintWorkspace(){
+  const ws=S.workspace||{}, st=S.status||{}, p=ws.paper||{};
+  if(document.activeElement!==$('pw')) $('pw').value=p.width_cm; if(document.activeElement!==$('ph')) $('ph').value=p.height_cm;
+  $('corners').innerHTML=['A','B','C','D'].map(n=>{const done=(p.corners||{})[n];
+    return `<div style="flex:1 1 120px;background:var(--panel2);border:1px solid ${done?'#2ea043':'var(--line)'};border-radius:8px;padding:8px">
+      <b>${n}</b> <span class="${done?'ok':'no'}">${done?'✓ taught':'not taught'}</span><br>
+      <span class="small mono">${done?['shoulder_pan','shoulder_lift','elbow_flex','wrist_flex'].map(j=>fix(done[j],0)).join(' / '):''}</span><br>
+      <button class=sm onclick="if(confirm('Brush tip touching the paper at corner ${n}?'))pc('mark_corner&name=${n}')">Mark ${n}</button></div>`}).join('');
+  const stn=ws.stations||{};
+  $('stations').innerHTML='<tr><th>station</th><th>kind</th><th>dip</th><th>hover</th><th></th></tr>'+Object.keys(stn).map(n=>{const s=stn[n];
+    return `<tr><td>${s.kind==='color'?`<i class=sw style="background:rgb(${(s.rgb||[128,128,128]).join(',')})"></i>`:''}<b>${n}</b></td><td>${s.kind}</td>
+      <td class="${s.dip?'ok':'no'}">${s.dip?'✓':'—'} <button class=sm onclick="if(confirm('Brush tip in ${n} now?'))pc('station_mark&name=${encodeURIComponent(n)}&which=dip')">Mark dip</button></td>
+      <td class="${s.hover?'ok':'warn'}">${s.hover?'✓':'auto'} <button class=sm onclick="pc('station_mark&name=${encodeURIComponent(n)}&which=hover')">Mark hover</button></td>
+      <td><button class=sm onclick="if(confirm('delete ${n}?'))pc('station_delete&name=${encodeURIComponent(n)}')">✕</button></td></tr>`}).join('')
+    ||'<tr><td class=small colspan=5>no stations yet</td></tr>';
+  if(!$('brush').children.length){
+    const b=ws.brush||{}; const fields=[['hover_cm','hover cm'],['press_cm','press cm'],['width_mm','width mm'],['dip_every_cm','dip every cm'],['stroke_speed','stroke °/s'],['travel_speed','travel °/s'],['dip_dwell_s','dwell s'],['rinse_dips','rinse dips']];
+    $('brush').innerHTML=fields.map(([k,l])=>`<label class=small>${l}<br><input type=number step=0.1 data-k="${k}" value="${b[k]}"></label>`).join('')+`<button class=sm onclick="brushSave()">Save brush</button>`;
+  }
+  const t=S.tool||{};
+  $('tool').innerHTML=t.ok?`<span class=ok>fitted</span> from ${t.contacts} contacts · brush ${t.brush_len_cm} cm · pitch ${t.pitch_deg}° · corner fit rms ${t.xy_rms_cm} cm (max ${t.xy_max_cm}) · height rms ${t.z_rms_mm} mm · <b>${t.reachable_pct}% of the paper reachable</b>${t.note?' · '+t.note:''}`
+    :`<span class=no>not fitted</span> — ${t.error||''}`;
+  $('c_ws').textContent=st.ready?'ready':`corners ${(st.paper||{}).corners?.length||0}/4 · colours ${(st.colors||[]).length} · water ${(st.water||[]).length}`;
+  $('c_ws').className=st.ready?'ok':'warn';
+}
+
+function paperCanvas(cv, ws, draw){
+  const W=ws.paper.width_cm, H=ws.paper.height_cm, dpr=devicePixelRatio||1, w=cv.clientWidth, h=cv.height/dpr||240;
+  cv.width=w*dpr; cv.height=h*dpr; const x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  const s=Math.min((w-20)/W,(h-20)/H), ox=(w-W*s)/2, oy=(h-H*s)/2;
+  x.fillStyle='#f4f1ea'; x.fillRect(ox,oy,W*s,H*s);
+  draw(x,(u)=>ox+u*s,(v)=>oy+v*s,s);
+  x.strokeStyle='#8b949e'; x.strokeRect(ox,oy,W*s,H*s);
+  x.fillStyle='#8b949e'; x.font='10px ui-monospace'; x.fillText('A',ox+3,oy+11); x.fillText('B',ox+W*s-10,oy+11); x.fillText('C',ox+W*s-10,oy+H*s-4); x.fillText('D',ox+3,oy+H*s-4);
+}
+function drawMap(){
+  const ws=S.workspace; if(!ws||!ws.paper) return;
+  paperCanvas($('map'),ws,(x,X,Y,s)=>{
+    const r=S.reach; if(r){ const cw=ws.paper.width_cm/r.cols, ch=ws.paper.height_cm/r.rows;
+      for(let k=0;k<r.rows;k++)for(let i=0;i<r.cols;i++){ x.fillStyle=r.grid[k][i]?'rgba(63,185,80,.35)':'rgba(248,81,73,.45)'; x.fillRect(X(i*cw),Y(k*ch),cw*s+.5,ch*s+.5);} }
+    const b=S.brush_uv; if(b){ x.fillStyle='#fff'; x.beginPath(); x.arc(X(b[0]),Y(b[1]),5,0,7); x.fill(); x.fillStyle='#111'; x.font='10px ui-monospace'; x.fillText(`${b[0]},${b[1]} · z ${b[2]} cm`,X(b[0])+7,Y(b[1])-6); }
+  });
+}
+function drawStrokes(cv, ws, strokes, palette, done){
+  const col={}; (palette||[]).forEach(p=>col[p.name]='rgb('+p.rgb.join(',')+')');
+  paperCanvas(cv,ws,(x,X,Y,s)=>{ x.lineCap='round'; x.lineWidth=Math.max(1.5,(ws.brush?.width_mm||6)/10*s);
+    (strokes||[]).forEach((st,i)=>{ const d=!done||done.has(i); x.strokeStyle=d?(col[st.color]||'#333'):'rgba(120,120,120,.25)';
+      x.beginPath(); st.points.forEach((p,k)=>k?x.lineTo(X(p[0]),Y(p[1])):x.moveTo(X(p[0]),Y(p[1]))); x.stroke(); }); });
+}
+
+async function plan(dry){
+  const f=$('pic').files[0]; const q=new URLSearchParams({name:$('pname').value||(f?f.name.replace(/\.[^.]+$/,''):'picture'),margin_cm:$('margin').value,detail:$('detail').value,white_threshold:$('white').value,max_stroke_cm:$('maxs').value,dry:dry?'1':'0',image:f?f.name:''});
+  $('planmsg').textContent='planning…';
+  const r=await fetch('/paint/plan?'+q,{method:'POST',body:f||null}).then(r=>r.json()).catch(e=>({error:String(e)}));
+  if(r.error){ $('planmsg').textContent='✕ '+r.error; $('planmsg').className='no'; return; }
+  lastPlan=r; $('planmsg').className='ok'; $('planmsg').textContent=`✓ saved as "${r.name}" — ${r.stats.strokes} strokes, ${r.stats.dips} dips, ${r.stats.rinses} rinses, ~${Math.round(r.stats.estimated_s/60)} min${r.skipped.length?` · ${r.skipped.length} strokes skipped (out of reach)`:''}`;
+  $('prev').src='data:image/png;base64,'+r.preview_png;
+  $('planstats').innerHTML=Object.entries(r.plan_stats.per_color).map(([k,v])=>`<div class=kv><span>${k}</span><b>${v} strokes</b></div>`).join('')+`<div class=kv><span>painted length</span><b>${r.plan_stats.painted_cm} cm</b></div><div class=kv><span>hatch pitch</span><b>${r.plan_stats.pitch_cm} cm</b></div>`;
+  drawStrokes($('strokes'),S.workspace,r.strokes,r.palette,null);
+}
+
+function paintPrograms(){
+  const P=S.programs||[];
+  $('programs').innerHTML='<tr><th>name</th><th>created</th><th>strokes</th><th>est.</th><th></th></tr>'+P.map(p=>`<tr><td><b>${p.name}</b>${p.dry_run?' <span class=warn>DRY</span>':''}<br><span class=small>${p.image||''} · ${(p.palette||[]).join(', ')}</span></td>
+    <td class=small>${p.created||''}</td><td>${p.stats?.strokes??'?'}</td><td>${p.stats?Math.round(p.stats.estimated_s/60)+' min':''}</td>
+    <td style="white-space:nowrap"><button class="sm primary" onclick="if(confirm('Run \\'${p.name}\\'${p.dry_run?' (dry run)':' — brush will touch the paper'}. Hand on STOP?')){liveName='${p.name}';pc('run&name=${encodeURIComponent(p.name)}')}">Run</button>
+    <button class=sm onclick="if(confirm('delete ${p.name}?'))pc('delete_program&name=${encodeURIComponent(p.name)}')">✕</button></td></tr>`).join('')||'<tr><td class=small colspan=5>no programs yet</td></tr>';
+}
+
+async function paintProgress(){
+  const pr=S.progress; const phases=['preflight','start','painting','finish','done'];
+  $('phases').innerHTML=phases.map(p=>`<div class="step ${S.phase===p?'now':''}">${p}</div>`).join('');
+  if(!pr){ $('ptitle').textContent=S.detail&&S.phase?`${S.phase}: ${S.detail}`:'no program running'; $('pbar').style.width='0'; return; }
+  $('ptitle').innerHTML=`<b>${pr.program}</b>${pr.dry_run?' <span class=warn>DRY RUN</span>':''} · step ${pr.step}/${pr.steps} · stroke ${pr.stroke_done}/${pr.strokes}${pr.color?` · colour <b>${pr.color}</b>`:''} · ${pr.label||''}`;
+  $('pbar').style.width=(100*pr.step/Math.max(1,pr.steps))+'%';
+  if(!liveProg||liveProg.name!==pr.program){ liveProg=await fetch('/paint/program/'+encodeURIComponent(pr.program)).then(r=>r.json()).catch(()=>null); }
+  if(liveProg&&liveProg.strokes_uv) drawStrokes($('live'),S.workspace,liveProg.strokes_uv,liveProg.palette,new Set(pr.done_strokes||[]));
+}
+
+function tick(){
+  fetch('/paint/state').then(r=>r.json()).then(j=>{ S=j;
+    $('c_mode').textContent=j.mode||'—'; $('c_torque').textContent=j.torque_on?'on':'off'; $('c_auto').textContent=j.auto||'idle';
+    $('c_uv').textContent=j.brush_uv?`${j.brush_uv[0]}, ${j.brush_uv[1]} cm · z ${j.brush_uv[2]} cm`:'—';
+    $('banner').style.display=j.estop?'block':'none';
+    paintWorkspace(); drawMap(); paintPrograms(); paintProgress();
+  }).catch(()=>{});
+}
+tick(); setInterval(tick,700);
+</script>

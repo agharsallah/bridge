@@ -84,3 +84,19 @@ def test_unknown_route_is_404(server):
     with pytest.raises(urllib.error.HTTPError) as e:
         get(base + "/nope")
     assert e.value.code == 404
+
+
+def test_paint_page_and_state(server):
+    base, _, _ = server
+    status, body = get(base + "/paint")
+    assert status == 200 and b"painting" in body
+    status, body = get(base + "/paint/state")
+    st = json.loads(body)
+    assert status == 200 and "workspace" in st and "tool" in st and st["tool"]["ok"] is False
+
+
+def test_paint_plan_without_picture_reports_error(server):
+    base, _, _ = server
+    req = urllib.request.Request(base + "/paint/plan?name=x", data=b"", method="POST")
+    with urllib.request.urlopen(req, timeout=5) as r:
+        assert "error" in json.loads(r.read())

@@ -221,3 +221,19 @@ Images: `var/top.jpg`, `var/wrist.jpg` (960×540 JPEG, ~every 1.5 s, with detect
 - Dashboard: Routine panel (phases, preflight, approach convergence), Guard events panel, Esc = STOP.
 - Tests run without lerobot installed (`hardware.py` imports it lazily); `tests/test_autopick.py` drives the routine
   against a simulated arm.
+
+
+## Added in 3.5 — painting
+
+- `/paint` page and API: `/paint/state`, `/paint/cmd?a=paper_size|mark_corner|mark_extra|clear_paper|station_set|
+  station_mark|station_delete|brush|run|delete_program|trace_border`, `POST /paint/plan` (picture body; query
+  `name, margin_cm, detail, white_threshold, max_stroke_cm, dry`), `/paint/program/<name>`.
+- Control loop `path` command: `{"action":"path","points":[pose,...],"speed":deg_s}` follows dense waypoints
+  continuously; each point is step-capped / clamped / floor-guarded relative to the previous one; HOLD, ESTOP and the
+  guards drop the queue. `/state.path` = {remaining, total} while a path runs.
+- Routine `paint` (select with `ctrl.paint_request = {"name": ...}`; the page does this). Phases: preflight, start,
+  painting (detail = colour), finish, done. `/state.progress.paint` = step/stroke counters and painted stroke indices.
+- Files: `config/painting.json` (paper, corners, stations, brush), `paintings/<name>.json` (compiled programs).
+- Safety notes: the floor guard protects the *fingertips*; the brush tip is planned by the tool model
+  (press depth `brush.press_cm`, default 1.5 mm). Validate with the border dry run and a DRY program before painting.
+  Stations are visited via an "up" pose (shoulder −10°) so the brush does not sweep the paper.

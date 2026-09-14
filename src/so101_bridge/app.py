@@ -60,13 +60,54 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
     last_state, seq, loop_i = 0.0, 0, 0
     stall_since, last_load_warn = None, 0.0
     last_loads, loop_hz = {}, float(LOOP_HZ)
+    path_queue, path_total = [], 0          # continuous waypoint execution ({"action": "path"})
     stop = {"flag": False}
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGINT, lambda *_: stop.__setitem__("flag", True))
     log(f"ready. present={ {k: round(v, 1) for k, v in present.items()} }")
 
+    def guard_point(target_pose, ref, src):
+        """Step cap, soft limits and floor guard for one goal pose relative to a reference pose."""
+        out = dict(ref)
+        for j, v in target_pose.items():
+            if j not in JOINTS: log(f"unknown joint {j}"); continue
+            target = float(v)
+            if j != "gripper" and abs(target - ref[j]) > MAX_STEP_DEG:
+                target = ref[j] + MAX_STEP_DEG * (1 if target > ref[j] else -1)
+                ctrl.event("STEP CAP", f"{j}: limited to {MAX_STEP_DEG} deg ({src})")
+            lo, hi = limits[j]; clamped = min(hi, max(lo, target))
+            if abs(clamped - target) > 1e-6: ctrl.event("CLAMP", f"{j}: {target:.1f} -> {clamped:.1f} ({src})")
+            out[j] = clamped
+        if ctrl.floor.params is not None and src != "floor_ok":
+            for frac in (1.0, 0.75, 0.5, 0.25, 0.0):
+                trial = {j: ref[j] + frac * (out[j] - ref[j]) for j in JOINTS}
+                zt = ctrl.floor.z(trial)
+                if zt is not None and zt >= FLOOR_MARGIN: break
+            if frac < 1.0:
+                ctrl.event("FLOOR GUARD", f"goal would put the tips at {ctrl.floor.z(out) * 100:.1f} cm -> step scaled to {frac:.2f} ({src})")
+                for j in ARM: out[j] = trial[j]
+        return out
+
+    def apply_path(c):
+        """A dense list of poses followed back-to-back by the interpolator (no stop at each point)."""
+        nonlocal goal, cmd, mode, torque_on, path_queue, path_total
+        if not torque_on:
+            robot.bus.enable_torque(num_retry=5); torque_on = True; cmd = dict(present)
+        pts, ref, src = [], dict(present), c.get("src", "file")
+        for p in c.get("points", []):
+            ref = guard_point(p, ref, src); pts.append(ref)
+        if not pts: log("path: no points"); return
+        s = c.get("speed")
+        if s is not None:
+            for j in JOINTS: speed[j] = min(MAX_SPEED, max(0.5, float(s)))
+        path_queue, path_total = pts[1:], len(pts)
+        goal = dict(pts[0]); mode = "moving"
+        ctrl.rec_write({"event": "path", "src": src, "n": len(pts), "speed": s})
+        log(f"path[{src}]: {len(pts)} points at {s} deg/s")
+
     def apply_goal(c):
-        nonlocal goal, cmd, mode, torque_on
+        nonlocal goal, cmd, mode, torque_on, path_queue
+        path_queue = []
         if not torque_on:
             robot.bus.enable_torque(num_retry=5); torque_on = True; cmd = dict(present)
         for j, v in c.get("goal", {}).items():
@@ -107,7 +148,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             # ---- E-STOP
             if ESTOP.exists():
                 if mode != "estop":
-                    goal, cmd, mode = dict(present), dict(present), "estop"; ctrl.abort_auto("ESTOP file")
+                    path_queue = []; goal, cmd, mode = dict(present), dict(present), "estop"; ctrl.abort_auto("ESTOP file")
                     ctrl.event("ESTOP", "frozen. RESUME (or delete the ESTOP file) to continue.")
             elif mode == "estop":
                 mode, goal, cmd = "hold", dict(present), dict(present); log("ESTOP cleared")
@@ -125,7 +166,8 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 if mode == "estop" and act not in ("diag",):
                     log(f"ignored {act} (estop)"); continue
                 if act == "goal": apply_goal(c)
-                elif act == "hold": goal, cmd, mode = dict(present), dict(present), "hold"; log("hold")
+                elif act == "path": apply_path(c)
+                elif act == "hold": path_queue = []; goal, cmd, mode = dict(present), dict(present), "hold"; log("hold")
                 elif act == "release":
                     goal, cmd = dict(present), dict(present); robot.bus.disable_torque(); torque_on = False
                     mode = "released"; log("torque RELEASED"); ctrl.rec_write({"event": "release"})
@@ -159,14 +201,14 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 if loads: last_loads = {j: int(v) for j, v in loads.items()}
                 hot = {j: v for j, v in loads.items() if j != "gripper" and abs(v) > LOAD_LIMIT[j]}
                 if hot and mode == "moving":
-                    goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("load guard")
+                    path_queue = []; goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("load guard")
                     ctrl.event("LOAD GUARD", f"{hot} -> frozen at present.")
                 elif hot and time.time() - last_load_warn > 2.0:
                     last_load_warn = time.time(); log(f"load warning while holding: {hot}")
             # ---- floor guard (runtime): predicted tip height below the table plane -> freeze
             zp = ctrl.floor.z(present)
             if zp is not None and torque_on and mode == "moving" and zp < FLOOR_FREEZE:
-                goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("floor guard")
+                path_queue = []; goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("floor guard")
                 ctrl.event("FLOOR FREEZE", f"predicted tip height {zp * 100:.1f} cm")
             # ---- stall guard
             if torque_on and mode == "moving":
@@ -174,7 +216,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 if lag[worst] > STALL_DEG:
                     stall_since = stall_since or time.time()
                     if time.time() - stall_since > STALL_SEC:
-                        goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("stall guard")
+                        path_queue = []; goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("stall guard")
                         ctrl.event("STALL", f"{worst} lag {lag[worst]:.1f} deg -> frozen at present.")
                 else: stall_since = None
             else: stall_since = None
@@ -187,6 +229,8 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     if abs(d) > step: cmd[j] += step * (1 if d > 0 else -1); moving = True
                     else: cmd[j] = goal[j]
                 robot.send_action({f"{j}.pos": cmd[j] for j in JOINTS})
+                if mode == "moving" and not moving and path_queue:
+                    goal = dict(path_queue.pop(0)); moving = True          # next waypoint, no stop
                 if mode == "moving" and not moving and all(abs(present[j] - goal[j]) < REACH_TOL for j in ARM):
                     mode = "reached"; log(f"reached { {k: round(v, 1) for k, v in present.items()} }")
             elif torque_on and mode in ("reached", "stalled"):
@@ -216,7 +260,8 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                       "speed": speed, "limits": {k: [round(a, 1), round(b, 1)] for k, (a, b) in limits.items()},
                       "last_cmd": last_cmd_name, "estop": ESTOP.exists(),
                       "tip_z_cm": round(zp * 100, 1) if zp is not None else None,
-                      "load": last_loads, "load_limit": LOAD_LIMIT, "loop_hz": round(loop_hz, 1)}
+                      "load": last_loads, "load_limit": LOAD_LIMIT, "loop_hz": round(loop_hz, 1),
+                      "path": {"remaining": len(path_queue), "total": path_total} if (path_queue or mode == "moving") and path_total else None}
                 with ctrl.lock: ctrl.state = st
                 atomic_write(STATE_FILE, json.dumps(st, indent=1).encode()); last_state = now
         except Exception:

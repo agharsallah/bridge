@@ -15,11 +15,104 @@ from urllib.parse import parse_qs, urlparse
 from . import routines
 from .controller import Controller
 from .floor import FLOOR_MARGIN, GRASP_Z
+from .paint import kinematics as paint_kin
+from .paint import planner as paint_planner
+from .paint import program as paint_program
+from .paint import workspace as paint_ws
 from .paths import ESTOP, LOG_FILE
 from .settings import HTTP_PORT, JOINTS
 from .util import log
 
 PAGE = (Path(__file__).parent / "web" / "dashboard.html").read_bytes()
+PAINT_PAGE = (Path(__file__).parent / "web" / "paint.html").read_bytes()
+
+
+def _json(handler, obj, status=200):
+    body = json.dumps(obj, default=str).encode()
+    handler.send_response(status); handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(body))); handler.end_headers(); handler.wfile.write(body)
+
+
+def paint_state(ctrl):
+    """Everything the /paint page needs: workspace, fitted tool model, reachability, programs, progress."""
+    st, _ = ctrl.snapshot()
+    ws = paint_ws.load()
+    tool = paint_kin.ToolModel(ctrl.floor, ws, st.get("limits") or {})
+    out = {"workspace": ws, "status": paint_ws.status(ws), "tool": tool.summary(), "programs": paint_program.catalog(),
+           "progress": None, "auto": ctrl.routine_status, "mode": st.get("mode"), "estop": st.get("estop"),
+           "torque_on": st.get("torque_on"), "present": st.get("present"), "time": st.get("time")}
+    if tool.ok:
+        cols, rows, grid = tool.reachability(1.0); out["reach"] = {"cols": cols, "rows": rows, "grid": grid}
+        if st.get("present"):
+            try:
+                u, v, z = tool.pose_to_uv(st["present"]); out["brush_uv"] = [round(u, 1), round(v, 1), round(z * 100, 1)]
+            except Exception: pass
+    with ctrl.lock:
+        out["progress"] = json.loads(json.dumps(ctrl.progress.get("paint"), default=str)) if ctrl.progress.get("paint") else None
+        out["phase"] = ctrl.progress.get("phase"); out["detail"] = ctrl.progress.get("detail")
+    return out
+
+
+def paint_cmd(ctrl, q):
+    g = lambda k, d=None: q.get(k, [d])[0]
+    a = g("a"); st, _ = ctrl.snapshot(); present = st.get("present") or {}
+    if a == "paper_size": paint_ws.set_paper_size(float(g("w")), float(g("h")))
+    elif a == "mark_corner": paint_ws.mark_corner(g("name"), present)
+    elif a == "mark_extra": paint_ws.mark_extra(float(g("u")), float(g("v")), present)
+    elif a == "clear_paper": paint_ws.clear_paper_marks()
+    elif a == "station_set":
+        rgb = [int(x) for x in (g("rgb") or "128,128,128").split(",")]
+        paint_ws.set_station(g("name", ""), g("kind", "color"), rgb)
+    elif a == "station_mark": paint_ws.mark_station(g("name"), g("which", "dip"), present)
+    elif a == "station_delete": paint_ws.delete_station(g("name"))
+    elif a == "brush": paint_ws.set_brush(**{k: v[0] for k, v in q.items() if k != "a"})
+    elif a == "run":
+        ctrl.paint_request = {"name": g("name")}; ctrl.start_routine("paint")
+    elif a == "delete_program": paint_program.delete(g("name"))
+    elif a == "trace_border":
+        # dry-run program along the paper border at hover height: validates corners, reach and clearance
+        ws = paint_ws.load(); tool = paint_kin.ToolModel(ctrl.floor, ws, st.get("limits") or {})
+        if not tool.ok: log(f"paint: cannot trace border: {tool.error}"); return
+        W, H = ws["paper"]["width_cm"], ws["paper"]["height_cm"]; m = 0.5
+        color = next((n for n, s_ in ws["stations"].items() if s_.get("kind") == "color" and s_.get("dip")), None)
+        pts = [[m, m], [W - m, m], [W - m, H - m], [m, H - m], [m, m]]
+        plan = {"palette": [{"name": color or "border", "rgb": [80, 80, 80]}], "grid": {"cols": 1, "rows": 1, "cells": [[-1]],
+                "origin_cm": [0, 0], "size_cm": [W, H]},
+                "strokes": [{"color": color or "border", "points": [pts[i], pts[i + 1]]} for i in range(4)]}
+        ws2 = json.loads(json.dumps(ws))
+        if color is None: ws2["stations"]["border"] = {"kind": "color", "rgb": [80, 80, 80], "dip": None}
+        prog = paint_program.compile_program(plan, ws2, tool, "_trace_border", "paper border", dry_run=True)
+        paint_program.save(prog); ctrl.paint_request = {"name": "_trace_border"}; ctrl.start_routine("paint")
+    else: log(f"paint: unknown command {a!r}")
+
+
+def paint_plan(ctrl, q, body):
+    """POST /paint/plan with the picture as the body: quantise, hatch, compile, save. Returns stats + preview."""
+    import base64
+
+    import cv2
+    import numpy as np
+    g = lambda k, d=None: q.get(k, [d])[0]
+    img = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR) if body else None
+    if img is None:
+        if getattr(ctrl, "paint_image", None) is None: return {"error": "no picture uploaded"}
+        img, image_name = ctrl.paint_image
+    else:
+        image_name = g("image", "upload"); ctrl.paint_image = (img, image_name)
+    st, _ = ctrl.snapshot(); ws = paint_ws.load()
+    tool = paint_kin.ToolModel(ctrl.floor, ws, st.get("limits") or {})
+    if not tool.ok: return {"error": f"tool model: {tool.error}"}
+    params = {k: float(g(k)) for k in ("margin_cm", "detail", "white_threshold", "max_stroke_cm") if g(k) not in (None, "")}
+    try:
+        plan = paint_planner.plan_image(img, ws, params)
+        prog = paint_program.compile_program(plan, ws, tool, g("name") or image_name, image_name, dry_run=g("dry") == "1")
+    except ValueError as e:
+        return {"error": str(e)}
+    name = paint_program.save(prog)
+    return {"name": name, "stats": prog["stats"], "plan_stats": plan["stats"], "skipped": prog["skipped"],
+            "preview_png": base64.b64encode(paint_planner.preview_png(plan)).decode(), "grid": plan["grid"],
+            "strokes": plan["strokes"], "palette": plan["palette"]}
+
 
 
 def serve(ctrl: Controller, port: int = HTTP_PORT):
@@ -34,6 +127,18 @@ def serve(ctrl: Controller, port: int = HTTP_PORT):
 def make_handler(ctrl: Controller):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
+        def do_POST(self):
+            u = urlparse(self.path)
+            n = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(n) if n else b""
+            if u.path == "/paint/plan":
+                try: res = paint_plan(ctrl, parse_qs(u.query), body)
+                except Exception as e:
+                    log(f"paint plan error: {e}"); res = {"error": str(e)}
+                _json(self, res)
+            else:
+                self.send_response(404); self.end_headers()
+
         def do_GET(self):
             u = urlparse(self.path)
             if u.path == "/":
@@ -74,6 +179,18 @@ def make_handler(ctrl: Controller):
                 except OSError: lines = []
                 body = json.dumps(lines).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            elif u.path == "/paint":
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(PAINT_PAGE))); self.end_headers(); self.wfile.write(PAINT_PAGE)
+            elif u.path == "/paint/state":
+                _json(self, paint_state(ctrl))
+            elif u.path == "/paint/cmd":
+                try: paint_cmd(ctrl, parse_qs(u.query))
+                except Exception as e: log(f"paint cmd error: {e}")
+                self.send_response(204); self.end_headers()
+            elif u.path.startswith("/paint/program/"):
+                prog = paint_program.load(u.path.rsplit("/", 1)[1])
+                _json(self, prog or {"error": "not found"}, 200 if prog else 404)
             elif u.path == "/waypoints":
                 body = json.dumps(ctrl.wp_load()).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)

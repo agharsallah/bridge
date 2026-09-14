@@ -26,6 +26,7 @@ to do when something goes wrong.
 | `var/` | runtime only, never committed: `bridge.log`, `state.json`, `cmd/`, `done/`, `recordings/`, camera snapshots |
 | `scripts/` | double-clickable `STOP` / `RESUME` / `RELEASE` for the operator |
 | `docs/` | operations manual, learnings, machine-readable `metadata.json`, decision log |
+| `paintings/` | compiled painting programs (`<name>.json`): joint poses for every step, replayable without model or cameras |
 | `tests/` | unit tests for the parts that need no hardware |
 | `ESTOP` | presence of this file freezes the arm; kept at the root so it is one short `touch` away |
 
@@ -38,6 +39,7 @@ to do when something goes wrong.
 | `controller.py` | shared state, command queue, recording, waypoints, motion helpers |
 | `routines.py` | registry of named routines; a routine is `run(ctrl)` that only requests goals and reports `ctrl.phase(...)` |
 | `autopick.py` | the built-in `pick_place` routine (registered via `@routine`) |
+| `paint/` | painting: taught workspace (`workspace.py`), brush-tip kinematics on the paper plane (`kinematics.py`), picture → hatch strokes (`planner.py`), strokes → replayable joint program (`program.py`), the `paint` routine (`routine.py`) |
 | `floor.py` | fitted floor model: predicted fingertip height, the guard that protects the table |
 | `vision.py` | brick detection and the dashboard overlay |
 | `dashboard.py` + `web/dashboard.html` | local HTTP dashboard (status chips, camera streams, to-scale side view of the floor model, joint tracks with load, tip-height and tracking-error charts, log tail) and the JSON/MJPEG interfaces |
@@ -57,6 +59,23 @@ goal / command, load vs guard limit, jog buttons and sliders); tip-height and tr
 `/state` carries everything the page shows — `progress`, `events`, `preflight`, `routines` — so an
 agent can follow a run without the page. Start a routine with `/cmd?a=routine&name=pick_place` or a
 `{"action": "routine", "name": "pick_place"}` command file.
+
+## Painting (http://localhost:8765/paint)
+
+1. **Paper** — enter the paper size; with the brush in the gripper, FREE-DRIVE the brush tip onto each corner
+   (A top-left, B top-right, C bottom-right, D bottom-left) and mark it. The tool model is fitted from these
+   marks: brush pitch and length, and the arm→paper mapping; the page shows the fit residuals and a
+   reachability map of the paper. *Dry run: trace paper border* moves along the border at hover height.
+2. **Stations** — add colour pans (with their colour), the water cup and a towel; mark the dip pose for each
+   (and optionally a hover pose).
+3. **Picture → program** — upload a picture; it is quantised to the taught colours, hatched with strokes at the
+   brush width, and compiled to a program of guarded `path` steps (dips, rinses, strokes) saved in `paintings/`.
+   *Compile as DRY RUN* keeps every stroke at hover height.
+4. **Programs** — Run replays the saved joint poses (no camera or model needed; paper and stations must not
+   have moved). Progress shows the phase, current colour/stroke and the strokes painted so far.
+
+Requires the floor model (the tool model builds on its fitted chain). Poses in a program are precomputed,
+so a picture painted once can be painted again later from the saved file.
 
 ## Development
 

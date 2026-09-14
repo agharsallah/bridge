@@ -206,6 +206,16 @@ class Controller:
         time.sleep(0.15)
         return self.wait_reached(timeout)
 
+    def path(self, points, speed=6.0, timeout=None):
+        """Follow a dense list of poses continuously (the loop's 'path' command); wait until the end is reached."""
+        if not points: return True
+        self.request({"action": "path", "points": [dict(p) for p in points], "speed": speed, "src": "auto"})
+        time.sleep(0.15)
+        if timeout is None:
+            travel = sum(max(abs(b.get(j, a.get(j, 0)) - a.get(j, 0)) for j in a) for a, b in zip(points, points[1:])) if len(points) > 1 else 12
+            timeout = 10.0 + 2.0 * (travel + 12) / max(speed, 0.5)
+        return self.wait_reached(timeout)
+
     def goto_far(self, pose, speed=4.0, step=10.0):
         """Reach a pose from anywhere, splitting into <=step deg moves (respects the step cap)."""
         for _ in range(20):
