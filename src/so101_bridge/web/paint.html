@@ -105,7 +105,7 @@ img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-ren
   <section class="card span4">
     <h2>Paper map — reach &amp; live brush position</h2>
     <canvas id=map height=260></canvas>
-    <div class=small style="margin-top:6px">green = reachable at paper height, red = out of reach or beyond joint limits; white dot = brush tip now (by the tool model)</div>
+    <div class=small style="margin-top:6px">green = reachable at paper height, red = out of reach or beyond joint limits; white dot = brush tip now (by the tool model). Heights are measured from the taught paper plane, not from the floor model's zero.</div>
   </section>
 
   <section class="card span8">
@@ -192,7 +192,8 @@ function paintWorkspace(){
     $('brush').innerHTML=fields.map(([k,l])=>`<label class=small>${l}<br><input type=number step=0.1 data-k="${k}" value="${b[k]}"></label>`).join('')+`<button class=sm onclick="brushSave()">Save brush</button>`;
   }
   const t=S.tool||{};
-  $('tool').innerHTML=t.ok?`<span class=ok>fitted</span> from ${t.contacts} contacts · brush ${t.brush_len_cm} cm · pitch ${t.pitch_deg}° · corner fit rms ${t.xy_rms_cm} cm (max ${t.xy_max_cm}) · height rms ${t.z_rms_mm} mm · <b>${t.reachable_pct}% of the paper reachable</b>${t.note?' · '+t.note:''}`
+  $('tool').innerHTML=t.ok?`<span class=ok>fitted</span> from ${t.contacts} contacts · brush ${t.brush_len_cm} cm · pitch ${t.pitch_range_deg?t.pitch_range_deg[0]+'–'+t.pitch_range_deg[1]:t.pitch_deg}° · corner fit rms ${t.xy_rms_cm} cm (max ${t.xy_max_cm}) · paper size fit ${t.paper_rms_cm} cm · paper flatness ${t.flatness_mm} mm · <b>${t.reachable_pct}% of the paper reachable</b>`
+    +(t.warnings||[]).map(w=>`<div class=warn>⚠ ${w}</div>`).join('')
     :`<span class=no>not fitted</span> — ${t.error||''}`;
   $('c_ws').textContent=st.ready?'ready':`corners ${(st.paper||{}).corners?.length||0}/4 · colours ${(st.colors||[]).length} · water ${(st.water||[]).length}`;
   $('c_ws').className=st.ready?'ok':'warn';
@@ -212,7 +213,7 @@ function drawMap(){
   paperCanvas($('map'),ws,(x,X,Y,s)=>{
     const r=S.reach; if(r){ const cw=ws.paper.width_cm/r.cols, ch=ws.paper.height_cm/r.rows;
       for(let k=0;k<r.rows;k++)for(let i=0;i<r.cols;i++){ x.fillStyle=r.grid[k][i]?'rgba(63,185,80,.35)':'rgba(248,81,73,.45)'; x.fillRect(X(i*cw),Y(k*ch),cw*s+.5,ch*s+.5);} }
-    const b=S.brush_uv; if(b){ x.fillStyle='#fff'; x.beginPath(); x.arc(X(b[0]),Y(b[1]),5,0,7); x.fill(); x.fillStyle='#111'; x.font='10px ui-monospace'; x.fillText(`${b[0]},${b[1]} · z ${b[2]} cm`,X(b[0])+7,Y(b[1])-6); }
+    const b=S.brush_uv; if(b){ x.fillStyle='#fff'; x.beginPath(); x.arc(X(b[0]),Y(b[1]),5,0,7); x.fill(); x.fillStyle='#111'; x.font='10px ui-monospace'; x.fillText(`${b[0]},${b[1]} · ${b[2]} cm over paper`,X(b[0])+7,Y(b[1])-6); }
   });
 }
 function drawStrokes(cv, ws, strokes, palette, done){
@@ -261,7 +262,7 @@ function copyRaw(key){
 function tick(){
   fetch('/paint/state').then(r=>r.json()).then(j=>{ S=j;
     $('c_mode').textContent=j.mode||'—'; $('c_torque').textContent=j.torque_on?'on':'off'; $('c_auto').textContent=j.auto||'idle';
-    $('c_uv').textContent=j.brush_uv?`${j.brush_uv[0]}, ${j.brush_uv[1]} cm · z ${j.brush_uv[2]} cm`:'—';
+    $('c_uv').textContent=j.brush_uv?`${j.brush_uv[0]}, ${j.brush_uv[1]} cm · ${j.brush_uv[2]} cm over paper`:'—';
     $('banner').style.display=j.estop?'block':'none';
     paintWorkspace(); drawMap(); paintPrograms(); paintProgress(); paintVideos();
     $('rawjson').textContent=JSON.stringify(j,null,2);

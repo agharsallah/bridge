@@ -16,18 +16,18 @@
     "wrist_roll": -2.33
    },
    "C": {
-    "shoulder_pan": -41.32,
-    "shoulder_lift": 59.87,
-    "elbow_flex": 21.41,
-    "wrist_flex": 21.49,
-    "wrist_roll": -2.33
-   },
-   "D": {
     "shoulder_pan": 9.58,
     "shoulder_lift": 52.22,
     "elbow_flex": 29.49,
     "wrist_flex": 21.49,
     "wrist_roll": -2.24
+   },
+   "D": {
+    "shoulder_pan": -41.32,
+    "shoulder_lift": 59.87,
+    "elbow_flex": 21.41,
+    "wrist_flex": 21.49,
+    "wrist_roll": -2.33
    }
   },
   "extra": [],
