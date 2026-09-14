@@ -15,6 +15,8 @@ import traceback
 from . import dashboard, hardware, paths, vision
 from .controller import Controller
 from .floor import FLOOR_FREEZE, FLOOR_MARGIN
+from .paint import vision as paint_vision
+from .paint import workspace as paint_ws
 from .paths import CMD_DIR, DONE_DIR, ESTOP, SNAPSHOT, STATE_FILE
 from .poses import load_rest
 from .settings import (
@@ -239,6 +241,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             # ---- vision + streams
             if loop_i % VISION_EVERY == 0:
                 blobs, frames = {}, {}
+                ws = paint_ws.load()
                 for n in CAMS:
                     jpeg, b, bgr = vision.render(obs[n], n, mode, ctrl.routine_status,
                                                  show_servo_guides=(n == "wrist" and ctrl.routine_status == "running"))
@@ -247,6 +250,9 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     if jpeg:
                         with ctrl.lock: ctrl.jpeg[n] = jpeg
                         if loop_i % (VISION_EVERY * 5) == 0: atomic_write(SNAPSHOT[n], jpeg)
+                    paint_jpeg, _, _ = paint_vision.render(obs[n], n, ws, mode, ctrl.routine_status)
+                    if paint_jpeg:
+                        with ctrl.lock: ctrl.paint_jpeg[n] = paint_jpeg
                 with ctrl.lock: ctrl.blob = blobs
                 ctrl.video.write(frames)
 

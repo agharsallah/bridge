@@ -68,8 +68,8 @@ img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-ren
     <h2>Live cameras <span class=small style="text-transform:none;letter-spacing:0">— overhead (tower) and gripper (brush) views ·
       <button id=vrec class=sm onclick="vrec()">● REC VIDEO</button> <span id=vinfo></span> · programs record automatically</span></h2>
     <div class=cams>
-      <div class=cam><img src=/top.mjpg alt="top camera"><div class=tag>top — overhead</div></div>
-      <div class=cam><img src=/wrist.mjpg alt="wrist camera"><div class=tag>wrist — brush</div></div>
+      <div class=cam><img src=/paint/top.mjpg alt="top camera"><div class=tag>top — overhead</div></div>
+      <div class=cam><img src=/paint/wrist.mjpg alt="wrist camera"><div class=tag>wrist — brush</div></div>
     </div>
   </section>
 
@@ -143,6 +143,16 @@ img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-ren
     <div id=ptitle class=small style="margin-top:6px">no program running</div>
     <div class=prog><i id=pbar style="width:0"></i></div>
     <canvas id=live height=240></canvas>
+  </section>
+
+  <section class="card span12">
+    <h2>Raw state — measurements &amp; points <span class=small style="text-transform:none;letter-spacing:0">— full <span class=mono>/paint/state</span> JSON, for copying corners / station / tool numbers</span></h2>
+    <div class=hrow>
+      <button class=sm onclick="copyRaw()">Copy JSON</button>
+      <button class=sm onclick="copyRaw('workspace')">Copy workspace only</button>
+      <span id=rawcopied class="small ok" style="display:none">copied ✓</span>
+    </div>
+    <pre id=rawjson class="mono small" style="margin-top:8px;max-height:360px;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-all"></pre>
   </section>
 </main>
 
@@ -241,12 +251,20 @@ async function paintProgress(){
   if(liveProg&&liveProg.strokes_uv) drawStrokes($('live'),S.workspace,liveProg.strokes_uv,liveProg.palette,new Set(pr.done_strokes||[]));
 }
 
+function copyRaw(key){
+  const obj=key?S[key]:S; const text=JSON.stringify(obj,null,2);
+  const done=()=>{ const el=$('rawcopied'); el.style.display='inline'; clearTimeout(copyRaw._t); copyRaw._t=setTimeout(()=>el.style.display='none',1500); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(done);
+  else { const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); }
+}
+
 function tick(){
   fetch('/paint/state').then(r=>r.json()).then(j=>{ S=j;
     $('c_mode').textContent=j.mode||'—'; $('c_torque').textContent=j.torque_on?'on':'off'; $('c_auto').textContent=j.auto||'idle';
     $('c_uv').textContent=j.brush_uv?`${j.brush_uv[0]}, ${j.brush_uv[1]} cm · z ${j.brush_uv[2]} cm`:'—';
     $('banner').style.display=j.estop?'block':'none';
     paintWorkspace(); drawMap(); paintPrograms(); paintProgress(); paintVideos();
+    $('rawjson').textContent=JSON.stringify(j,null,2);
   }).catch(()=>{});
 }
 tick(); setInterval(tick,700);

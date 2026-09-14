@@ -1,0 +1,20 @@
+{
+ "paper": {
+  "corners": {},
+  "extra": [],
+  "width_cm": 21.0,
+  "height_cm": 14.8
+ },
+ "stations": {},
+ "brush": {
+  "hover_cm": 1.5,
+  "press_cm": 0.15,
+  "width_mm": 6.0,
+  "dip_every_cm": 12.0,
+  "stroke_speed": 6.0,
+  "travel_speed": 8.0,
+  "dip_dwell_s": 1.0,
+  "rinse_dips": 2
+ },
+ "updated": "2026-09-14 15:45:52"
+}

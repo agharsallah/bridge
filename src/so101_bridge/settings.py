@@ -54,6 +54,14 @@ JPEG_QUALITY = 75
 
 AUTO_RECORD_ROUTINES = True   # record both cameras to var/videos/ while a routine runs
 
+# ------------------------------------------------------- paint overlay (paint/vision.py) — same 960x540 frame
+PAPER_S_MAX, PAPER_V_MIN = 60, 150         # paper: low saturation, bright -> whatever the sheet colour
+PAPER_MIN_AREA = 4000
+PAPER_SOLIDITY = 0.85                       # paper is a clean rectangle, unlike the brick's studded top
+PAPER_RECT_FILL = 0.9                       # area / rotated-bbox area: rejects round trays (~0.78), keeps sheets
+WELL_HUE_TOL, WELL_S_MIN, WELL_V_MIN = 12, 60, 50   # +/- hue window around each taught station's colour
+WELL_MIN_AREA = 80
+
 # ------------------------------------------------------- overrides from config/settings.json
 OVERRIDDEN = []
 

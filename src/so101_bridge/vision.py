@@ -38,12 +38,17 @@ def find_yellow(bgr, hmin=None, hmax=None, smin=None, vmin=None, min_area=None):
 
 
 
+def frame(rgb):
+    """Downscale a raw RGB camera frame to the detector's working size, as BGR."""
+    return cv2.cvtColor(cv2.resize(rgb, (FRAME_W, FRAME_H), interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2BGR)
+
+
 def render(rgb, cam, mode, auto_status, show_servo_guides=False):
     """Downscale a camera frame, detect the brick, draw the overlay.
 
     Returns ``(jpeg_bytes | None, blob | None, bgr_frame)`` where blob is the detection in frame coordinates.
     """
-    bgr = cv2.cvtColor(cv2.resize(rgb, (FRAME_W, FRAME_H), interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2BGR)
+    bgr = frame(rgb)
     b = find_yellow(bgr)
     if b:
         cv2.rectangle(bgr, (b["x"], b["y"]), (b["x"] + b["w"], b["y"] + b["h"]), (0, 200, 255), 2)

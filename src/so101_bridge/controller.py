@@ -26,6 +26,7 @@ class Controller:
         self.pending = []            # command dicts from files / http / routine
         self.jpeg = {}               # latest encoded frames for the dashboard
         self.blob = {}               # latest detections per camera
+        self.paint_jpeg = {}         # latest paper/colour-well overlay frames for the /paint page
         self.state = {}
         self.routine_thread = None
         self.routine_abort = threading.Event()

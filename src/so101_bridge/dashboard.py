@@ -163,13 +163,14 @@ def make_handler(ctrl: Controller):
                 st["video"] = ctrl.video.status(); st["videos"] = VideoRecorder.catalog()
                 body = json.dumps(st).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
-            elif u.path in ("/top.mjpg", "/wrist.mjpg"):
-                name = u.path[1:-5]
+            elif u.path in ("/top.mjpg", "/wrist.mjpg", "/paint/top.mjpg", "/paint/wrist.mjpg"):
+                paint = u.path.startswith("/paint/")
+                name = (u.path[7:] if paint else u.path[1:])[:-5]
                 self.send_response(200); self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=f"); self.end_headers()
                 try:
                     while True:
                         with ctrl.lock:
-                            frame = ctrl.jpeg.get(name)
+                            frame = (ctrl.paint_jpeg if paint else ctrl.jpeg).get(name)
                         if frame:
                             self.wfile.write(b"--f\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(frame))
                             self.wfile.write(frame); self.wfile.write(b"\r\n")
