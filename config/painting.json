@@ -145,14 +145,14 @@
   "hover_cm": 3.0,
   "press_cm": 0.15,
   "width_mm": 6.0,
-  "dip_every_cm": 6.0,
-  "stroke_speed": 6.0,
-  "travel_speed": 6.0,
+  "dip_every_cm": 8.0,
+  "stroke_speed": 8.0,
+  "travel_speed": 9.0,
   "dip_dwell_s": 1.0,
-  "rinse_dips": 2,
+  "rinse_dips": 3.0,
   "z_offset_cm": 0.0
  },
- "updated": "2026-09-14 17:42:41",
+ "updated": "2026-09-14 18:07:45",
  "probes": [
   {
    "u": 6.7,

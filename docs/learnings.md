@@ -91,3 +91,32 @@ What went wrong first, and the fix each time:
   verify contact itself.
 - Do not use GO TO REST with the brush in the gripper: `go_rest` opens the gripper to 10 on its way. Fold with a
   `path` that leaves the gripper alone (present 2.4).
+
+## Filling areas (same session, 17:52–18:11)
+
+Second pass: fill the sky (blue) and the ground (green) so no paper stays white. `paintings/sky_ground.plan.json`
+(27 blue radial strokes + the first ground attempt) and `paintings/ground_h.plan.json` (8 horizontal rows).
+- **Stroke direction matters for this arm.** A stroke along v (towards/away from the base) is a coordinated
+  lift+elbow move at the limit of reach — heavy, slow and it needed one dip per stroke. A stroke along u is a pan
+  sweep at constant lift: light, smooth, 18 cm in one go. The ground took 8 pan strokes / 3 min versus 28 radial
+  strokes / ~10 min for the sky. Operator's rule: *put the brush down and move the base.* Prefer rows along u for
+  fills; keep radial strokes for short details.
+- **Fill geometry**: rows 0.8 cm apart with a 6 mm brush close up in watercolour; skip zones as split strokes
+  (sun ±0.3 cm, roof, house walls, flower heads) rather than separate programs.
+- **Speed**: stroke 8 °/s, travel 9 °/s is the ceiling with the current guards; 12 °/s travel at the far top edge
+  read 640 on shoulder_lift (limit now 750 for this joint — it is PWM effort, mostly gravity). Dwell 1 s at a dip.
+- **Colour contamination**: 2 water dips × 0.5 s did not clean a blue-loaded brush; the green pan turned teal and
+  the ground came out blue-green until the operator refreshed the pan. Now `rinse_dips 3`, `dip_dwell_s 1.0`; a
+  towel station would help more than more water dips (the compiler already supports `kind: "towel"`).
+- **Re-dip interval**: fills want a fresh brush per row (`dip_every_cm 8`); outlines were fine at 6.
+- **Cameras swapped** again (`wrist.jpg` was the overhead view). It sees the whole sheet when the arm is folded or
+  to the side — check it between colour blocks; the other camera is useless while painting (all arm).
+- **Pausing a routine**: `hold` during a dwell does *not* stop the routine (it only fails a move). Use
+  `{"action":"abort"}` (added) — it aborts the routine and holds. Then `paint … from_stroke N` to continue.
+- **Left margin stayed pale**: the first sky strokes (u 1.4–3) ran on a brush that had travelled far from the pan;
+  start fills near the pan side or dip before the first stroke of each block.
+- **Clearance around finished shapes**: ±0.3 cm around the sun was not enough — wet blue spread into the yellow.
+  Wet watercolour bleeds about one brush width (0.6 cm); keep ≥0.8 cm from anything already painted, and paint
+  the light shapes *after* the surrounding fill if they must stay clean (or mask them with a dry stroke gap).
+- **Blanks in a fill**: 0.8 cm row pitch left gaps where the brush ran dry mid-row. Use 0.6 cm pitch (overlap),
+  dip before every row, and cross-hatch (a second pass at a different v offset) for a solid area.

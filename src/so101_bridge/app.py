@@ -225,6 +225,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 elif act == "video_start": ctrl.video.start(c.get("name", "clip"))
                 elif act == "video_stop": ctrl.video.stop()
                 elif act == "rest": ctrl.go_rest()
+                elif act == "abort": ctrl.abort_auto("abort (file)"); path_queue = []; goal, cmd, mode = dict(present), dict(present), "hold"
                 elif act == "write":
                     allowed = {"Max_Position_Limit", "Min_Position_Limit", "P_Coefficient", "D_Coefficient",
                                "Acceleration", "Goal_Velocity", "Torque_Enable", "Lock"}

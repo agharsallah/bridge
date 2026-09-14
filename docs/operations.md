@@ -262,6 +262,7 @@ and `video`, so a shell loop can follow a run.
 | `{"action":"paint_probe","u":..,"v":..,"z":1.0}` | record "the tip touched the paper here when commanded z" → height correction map |
 | `{"action":"paint_mark_extra","u":..,"v":..}` | present pose = tip on the paper at (u, v) (refits the tool model) |
 | `{"action":"paint_brush","hover_cm":3,"dip_every_cm":6}` | brush parameters (any key of `brush` in `config/painting.json`) |
+| `{"action":"abort"}` | abort the running routine and hold (a plain `hold` only interrupts one move) |
 | `{"action":"video_start","name":"x"}` / `{"action":"video_stop"}` | manual recording |
 
 **Plan file** (`paintings/<n>.plan.json`): `{"strokes": [{"color": "<station>", "points": [[u, v], [u, v], ...]}]}` in

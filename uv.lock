@@ -1304,7 +1304,7 @@ wheels = [
 
 [[package]]
 name = "so101-bridge"
-version = "3.6.0"
+version = "3.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "lerobot", extra = ["feetech"] },

@@ -1,7 +1,7 @@
 {
- "_comment": "Painting (2026-09-14): at full stretch (top of the paper, shoulder_lift 80-110) the arm carries 400-420 on shoulder_lift and sags 3.5-4.5 deg at P=32 -> LOAD GUARD and STALL tripped mid-program. Stiffer shoulder, wider stall band; the load and floor guards still protect the table. Lifting a wet brush out of the far blue pan (lift ~81, elbow ~-3) read 488 -> 600.",
+ "_comment": "Painting (2026-09-14): at full stretch (top of the paper, shoulder_lift 80-110) the arm carries 400-420 on shoulder_lift and sags 3.5-4.5 deg at P=32 -> LOAD GUARD and STALL tripped mid-program. Stiffer shoulder, wider stall band; the load and floor guards still protect the table. Lifting a wet brush out of the far blue pan (lift ~81, elbow ~-3) read 488 -> 600. Lifting out at the far top edge of the paper at 9-12 deg/s: 608-640 -> 750 (the reading is PWM effort, mostly gravity; elbow/wrist load, stall and floor guards are unchanged).",
  "LOAD_LIMIT": {
-  "shoulder_lift": 600
+  "shoulder_lift": 750
  },
  "STALL_DEG": 6.0,
  "P_GAIN": {

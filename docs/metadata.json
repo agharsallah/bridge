@@ -442,11 +442,22 @@
     "note": "assumed, per operator | -0.5 after shoulder P 32->48 (measured at house: 1.5 -> 1.0)"
    }
   ],
-  "load_limit_shoulder_lift": 600,
+  "load_limit_shoulder_lift": 750,
   "stall_deg": 6.0,
   "p_gain_shoulder_lift": 48,
   "reference_plan": "paintings/landscape.plan.json",
   "strokes": 14,
-  "colour_changes": 3
+  "colour_changes": 3,
+  "stroke_speed": 8.0,
+  "travel_speed": 9.0,
+  "dip_dwell_s": 1.0,
+  "rinse_dips": 3,
+  "dip_every_cm_fill": 8.0,
+  "row_pitch_cm": 0.8,
+  "fill_plans": [
+   "paintings/sky_ground.plan.json",
+   "paintings/ground_h.plan.json"
+  ],
+  "rule": "fills: strokes along u (pan sweeps at constant lift); radial (v) strokes only for short details"
  }
 }
