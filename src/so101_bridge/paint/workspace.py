@@ -25,7 +25,8 @@ PAINT_FILE = CONFIG_DIR / "painting.json"
 CORNERS = ("A", "B", "C", "D")
 KINDS = ("color", "water", "towel")
 BRUSH_DEFAULTS = {"hover_cm": 1.5, "press_cm": 0.15, "width_mm": 6.0, "dip_every_cm": 12.0,
-                  "stroke_speed": 6.0, "travel_speed": 8.0, "dip_dwell_s": 1.0, "rinse_dips": 2}
+                  "stroke_speed": 6.0, "travel_speed": 8.0, "dip_dwell_s": 1.0, "rinse_dips": 2,
+                  "z_offset_cm": 0.0}   # measured correction: + raises every paper height the tool model computes
 
 
 def _pose(p):

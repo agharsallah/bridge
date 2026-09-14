@@ -64,3 +64,30 @@ run without a fitted model.
 4. GO TO REST when done; RELEASE only with the arm resting on the table.
 Teach tools: joint buttons/sliders, REC (10 Hz jsonl in recordings/), Save waypoint, Mark contact (floor).
 Files: src/so101_bridge/ (v3.3), config/{limits,rest,floor_points,waypoints}.json, var/bridge.log.
+
+## Painting a picture with 14 strokes (2026-09-14)
+
+Result: the landscape (sun, roof, three flowers, two hills, stems, house, window) painted from
+`paintings/landscape.plan.json` — hand-written polylines instead of the hatcher, so 14 strokes and 3 colour
+changes instead of hundreds of hatch lines. Run and resumed entirely through `var/cmd/` files.
+
+What went wrong first, and the fix each time:
+- **Start of a program**: the first travel was one far point → step-capped to 12°, arm began from the wrong place.
+  The routine now bridges from the present pose to each step's first point in ≤8° increments (also makes
+  `from_stroke` resume possible).
+- **"reached" never came** although the arm was still: a joint sat between REACH_TOL (3°) and STALL_DEG (4°).
+  `SETTLE_SEC`: a finished move that is stationary for 0.8 s is reached, with the residual logged.
+- **Brush 1.5–2 cm too low** at "hover": geometric model + free-drive-taught corners vs. a sagging arm under torque.
+  Fixed by probing (operator says "touch" while the commanded height steps down) and a probe-based correction map
+  in the compiler — not by re-teaching corners. Corner residuals after refit were ±0.6 cm; sag was the rest.
+- **LOAD GUARD on shoulder_lift** (416, then 488) at the far edge of the paper / far pan: that is gravity, not a
+  collision. Limit 400→600 for this joint only; STALL_DEG 4→6; shoulder P 32→48 (less sag). Changing P moved the
+  touch height by 0.5 cm — gains and probes belong together.
+- **Wet brush swept sideways** leaving a station: compile now goes straight up (hover, then shoulder −10°), turns
+  the pan alone, then descends to the stroke. Hover raised 1.5→3 cm so inter-stroke travel is clearly off the paper.
+- **Fading colour**: re-dip after ~2–3 short strokes → `dip_every_cm` 12→6.
+- Camera: the overhead view is mostly the arm while it paints; the operator's eyes were the reliable sensor for
+  height. A camera that sees the paper past the arm (or the wrist camera looking at the tip) would let the agent
+  verify contact itself.
+- Do not use GO TO REST with the brush in the gripper: `go_rest` opens the gripper to 10 on its way. Fold with a
+  `path` that leaves the gripper alone (present 2.4).

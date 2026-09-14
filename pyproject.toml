@@ -1,6 +1,6 @@
 [project]
 name = "so101-bridge"
-version = "3.6.0"
+version = "3.7.0"
 description = "Safety-enforcing control bridge for the SO-101 follower arm: daemon, dashboard, agent interface."
 readme = "README.md"
 requires-python = ">=3.12"

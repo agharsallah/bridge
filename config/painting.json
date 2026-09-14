@@ -142,14 +142,35 @@
   }
  },
  "brush": {
-  "hover_cm": 1.5,
+  "hover_cm": 3.0,
   "press_cm": 0.15,
   "width_mm": 6.0,
-  "dip_every_cm": 12.0,
+  "dip_every_cm": 6.0,
   "stroke_speed": 6.0,
-  "travel_speed": 8.0,
+  "travel_speed": 6.0,
   "dip_dwell_s": 1.0,
-  "rinse_dips": 2
+  "rinse_dips": 2,
+  "z_offset_cm": 0.0
  },
- "updated": "2026-09-14 16:23:17"
+ "updated": "2026-09-14 17:42:41",
+ "probes": [
+  {
+   "u": 6.7,
+   "v": 4.7,
+   "z_touch_cm": 1.5,
+   "note": "touch at commanded z (cleared at 2.5) | -0.5 after shoulder P 32->48 (measured at house: 1.5 -> 1.0)"
+  },
+  {
+   "u": 14.4,
+   "v": 8.8,
+   "z_touch_cm": 1.0,
+   "note": "touch at commanded z (cleared at 2.0) | -0.5 after shoulder P 32->48 (measured at house: 1.5 -> 1.0)"
+  },
+  {
+   "u": 4.5,
+   "v": 12.0,
+   "z_touch_cm": 1.0,
+   "note": "assumed, per operator | -0.5 after shoulder P 32->48 (measured at house: 1.5 -> 1.0)"
+  }
+ ]
 }

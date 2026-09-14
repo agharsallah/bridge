@@ -245,3 +245,39 @@ Images: `var/top.jpg`, `var/wrist.jpg` (960×540 JPEG, ~every 1.5 s, with detect
 - Start/stop from the **● REC VIDEO** button on either page or `/cmd?a=video_start&name=…` / `a=video_stop`;
   every routine (pick, paint, dry run) records automatically while it runs (`AUTO_RECORD_ROUTINES`, settings.json).
 - `/state.video` = current recording {file, seconds, frames, auto}; `/state.videos` = catalogue; clips play/download at `/videos/<file>`.
+
+
+## 11. Painting from files — no browser, no agent (added 3.7, 2026-09-14)
+
+Everything the `/paint` page does can be driven by JSON files in `var/cmd/`; `var/state.json` now carries
+`auto` (routine status), `progress` (`routine`, `phase`, `detail`, `paint` = step / stroke counters and label)
+and `video`, so a shell loop can follow a run.
+
+| JSON | Meaning |
+|---|---|
+| `{"action":"paint_compile","plan":"paintings/<n>.plan.json","name":"<n>","dry":false}` | compile a hand-written plan into `paintings/<n>.json` (logs the skipped/unreachable strokes) |
+| `{"action":"paint","program":"<n>"}` | run a saved program (records video automatically) |
+| `{"action":"paint","program":"<n>","from_stroke":12}` | resume at stroke 12 — starts with the rinse/dip that precedes it |
+| `{"action":"paint_goto","u":6.7,"v":4.7,"z":3.0}` | brush tip to paper (u, v) cm at z cm above the paper, height correction applied (`"raw":1` = model height, no correction) |
+| `{"action":"paint_probe","u":..,"v":..,"z":1.0}` | record "the tip touched the paper here when commanded z" → height correction map |
+| `{"action":"paint_mark_extra","u":..,"v":..}` | present pose = tip on the paper at (u, v) (refits the tool model) |
+| `{"action":"paint_brush","hover_cm":3,"dip_every_cm":6}` | brush parameters (any key of `brush` in `config/painting.json`) |
+| `{"action":"video_start","name":"x"}` / `{"action":"video_stop"}` | manual recording |
+
+**Plan file** (`paintings/<n>.plan.json`): `{"strokes": [{"color": "<station>", "points": [[u, v], [u, v], ...]}]}` in
+paper cm, u along the top edge A→B, v down A→D. A stroke is a polyline: the brush goes down at the first point,
+follows every vertex and lifts at the last — so a hill is one stroke and a circle is one closed polygon. Colours are
+painted in plan order; a colour change inserts a rinse (2 water dips) and a dip; the brush re-dips after
+`brush.dip_every_cm` of painted line. `paintings/landscape.plan.json` is the reference (14 strokes, 4 colours).
+
+**Height correction** (`config/painting.json["probes"]`). The tool model is geometric and its corners were taught
+in free-drive; under torque the arm sags and the brush lands 1–2 cm lower than planned. Probes record where the
+tip *really* touched at a *commanded* height; the compiler adds the inverse-distance-weighted probe value to every
+height it asks the model for. Probes depend on the motor gains: after changing `P_GAIN` re-probe (P 32→48 on
+shoulder_lift moved the touch height from 1.5 to 1.0 cm).
+
+**Recipe**: `scripts/paint.sh landscape` (or `DRY=1 scripts/paint.sh landscape` first). A human stays within reach
+of STOP; between runs put the brush back in the gripper if it was removed and check the pans have not moved.
+
+Guard settings that painting needs (`config/settings.json`): `LOAD_LIMIT.shoulder_lift 600` (the stretched arm
+alone reads 400–490), `STALL_DEG 6` (shoulder sag at full reach is 3.5–4.5° at P=32), `P_GAIN.shoulder_lift 48`.

@@ -27,6 +27,7 @@ MAX_STEP_DEG = 12.0
 LOAD_LIMIT = {"shoulder_pan": 300, "shoulder_lift": 400, "elbow_flex": 450, "wrist_flex": 300, "wrist_roll": 300}
 STALL_DEG, STALL_SEC = 4.0, 0.7
 REACH_TOL = 3.0             # deg; elbow sags ~2 deg under gravity even at P=48
+SETTLE_SEC = 0.8            # s; a finished move whose sag exceeds REACH_TOL counts as reached once still this long
 MOTOR_GOAL_VELOCITY, MOTOR_ACCEL = 300, 15
 P_GAIN = {"elbow_flex": 48}; P_GAIN_DEFAULT = 32          # lerobot's 16 is too weak for small steps vs gravity
 

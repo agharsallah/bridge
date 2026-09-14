@@ -1,89 +1,452 @@
 {
-  "schema": "so101-bridge-metadata/1",
-  "updated": "2026-09-12",
-  "robot": {
-    "type": "so_follower (SO-101 follower)",
-    "lerobot_version": "0.6.2",
-    "port": "/dev/cu.usbmodem5A460836731",
-    "calibration_id": "my_follower",
-    "calibration_file": "~/.cache/huggingface/lerobot/calibration/robots/so_follower/my_follower.json",
-    "motors": {"shoulder_pan": 1, "shoulder_lift": 2, "elbow_flex": 3, "wrist_flex": 4, "wrist_roll": 5, "gripper": 6},
-    "motor_model": "sts3215",
-    "units": {"arm_joints": "degrees (calibrated, 0 = middle of calibration sweep)", "gripper": "0..100 (0 closed)"},
-    "gains": {"P_arm": 32, "P_elbow": 48, "P_gripper": 16, "I": 0, "D": 32, "note": "lerobot default P=16 stalls under gravity"},
-    "motor_caps": {"Goal_Velocity_steps_per_s": 300, "Acceleration": 15, "gripper_Max_Torque_Limit": 500, "gripper_Protection_Current": 250}
+ "schema": "so101-bridge-metadata/1",
+ "updated": "2026-09-12",
+ "robot": {
+  "type": "so_follower (SO-101 follower)",
+  "lerobot_version": "0.6.2",
+  "port": "/dev/cu.usbmodem5A460836731",
+  "calibration_id": "my_follower",
+  "calibration_file": "~/.cache/huggingface/lerobot/calibration/robots/so_follower/my_follower.json",
+  "motors": {
+   "shoulder_pan": 1,
+   "shoulder_lift": 2,
+   "elbow_flex": 3,
+   "wrist_flex": 4,
+   "wrist_roll": 5,
+   "gripper": 6
   },
-  "cameras": {
-    "top": {"opencv_index": 0, "model": "Innomaker U20CAM 1080p", "capture": "1920x1080@30", "processed": "960x540", "view": "overhead, arm base at bottom-right, user at left"},
-    "wrist": {"opencv_index": 1, "model": "Innomaker U20CAM 1080p", "capture": "1920x1080@30", "processed": "960x540", "view": "on fixed jaw; fixed jaw tip ~x380, moving jaw ~x850 when open; forward = image up"},
-    "warning": "indices may swap after re-plugging; verify on the dashboard"
+  "motor_model": "sts3215",
+  "units": {
+   "arm_joints": "degrees (calibrated, 0 = middle of calibration sweep)",
+   "gripper": "0..100 (0 closed)"
   },
-  "joint_conventions": {
-    "shoulder_lift": {"positive": "upper arm forward -> gripper down and slightly back", "rest": -45.5, "ready": 0},
-    "elbow_flex": {"negative": "unfold -> gripper forward and slightly up", "rest": 83, "ready": 70.5},
-    "wrist_flex": {"negative": "tips/camera pitch forward", "look_down_rule": "wrist = 37.5 - 0.7 * shoulder_lift (approx)", "ready": 37.5},
-    "shoulder_pan": {"positive": "gripper moves right in wrist image (scene shifts left)", "px_per_deg_wrist_image": "17..33 depending on height"},
-    "wrist_roll": {"note": "unused; keep at -12.6 (current) or -7.5"},
-    "gripper": {"open": 60, "close_command": 10, "stall_when_holding_brick": 20.4, "empty_close_reaches": "<14"}
+  "gains": {
+   "P_arm": 32,
+   "P_elbow": 48,
+   "P_gripper": 16,
+   "I": 0,
+   "D": 32,
+   "note": "lerobot default P=16 stalls under gravity"
   },
-  "limits_deg": {
-    "source": "calibration sweep +/-3deg margin, widened by limits.json extend",
-    "shoulder_pan": [-91.8, 91.8], "shoulder_lift": [-47, 98], "elbow_flex": [-80.4, 84.5],
-    "wrist_flex": [-83.8, 83.8], "wrist_roll": [-177, 177], "gripper": [0, 100],
-    "physical_note": "shoulder_lift measured by hand to reach 101 forward; rest pose sits on mechanical stops at lift -45.5 / elbow 83"
+  "motor_caps": {
+   "Goal_Velocity_steps_per_s": 300,
+   "Acceleration": 15,
+   "gripper_Max_Torque_Limit": 500,
+   "gripper_Protection_Current": 250
+  }
+ },
+ "cameras": {
+  "top": {
+   "opencv_index": 0,
+   "model": "Innomaker U20CAM 1080p",
+   "capture": "1920x1080@30",
+   "processed": "960x540",
+   "view": "overhead, arm base at bottom-right, user at left"
   },
-  "safety": {
-    "max_step_deg_per_command": 12, "default_speed_deg_s": 5, "max_speed_deg_s": 30, "recommended_speed_near_objects_deg_s": 4,
-    "stall_guard": {"lag_deg": 4, "seconds": 0.7},
-    "load_guard_of_1000": {"shoulder_pan": 300, "shoulder_lift": 400, "elbow_flex": 450, "wrist_flex": 300, "wrist_roll": 300},
-    "floor_guard": {"min_tip_height_m_for_goals": 0.008, "freeze_below_m": 0.0},
-    "reach_tolerance_deg": 3, "estop_file": "ESTOP (repository root)",
-    "known_gap": "pushing down into the table produces little motor load; only the floor model catches it"
+  "wrist": {
+   "opencv_index": 1,
+   "model": "Innomaker U20CAM 1080p",
+   "capture": "1920x1080@30",
+   "processed": "960x540",
+   "view": "on fixed jaw; fixed jaw tip ~x380, moving jaw ~x850 when open; forward = image up"
   },
-  "floor_model": {
-    "type": "planar 3-link chain, height independent of pan",
-    "link_lengths_m": {"L1": 0.1159, "L2": 0.135, "L3": 0.11},
-    "fit_2026-09-12": {"points": 7, "rms_mm": 1.4, "offsets_deg": [51.5, -100.0, 29.3], "z0_m": 0.096, "signs": [1, 1, 1], "z0_measured": false},
-    "known_predictions_cm": {"ready_0_70.5_37.5": 3.6, "grasp_42.1_69.1_7.9": 0.1, "squeeze_70.8_57_-4": -1.8, "drop_26.5_47.7_5": 11.2, "rest_-45.5_83_22.7": "11.1 (WRONG, extrapolation; real ~2)"},
-    "improve": "measure shoulder-lift shaft height above table -> floor_config.json {\"z0\": metres}; add contacts at known heights (brick top 0.019 m)",
-    "grasp_target_tip_height_m": 0.010
+  "warning": "indices may swap after re-plugging; verify on the dashboard"
+ },
+ "joint_conventions": {
+  "shoulder_lift": {
+   "positive": "upper arm forward -> gripper down and slightly back",
+   "rest": -45.5,
+   "ready": 0
   },
-  "vision": {
-    "brick": "yellow Duplo 2x4, 64x32x19 mm, top studs",
-    "hsv_gate": {"h": [14, 40], "s_min": 40, "v_min": 80}, "morphology": {"open": 5, "close": 21},
-    "shape_filters": {"solidity_min": 0.7, "fill_min": 0.5, "min_area_px": 600},
-    "distractors": {"table": "sat <= 33", "tin_label": "orange hue ~15, ring-shaped, rejected by hue/shape"},
-    "bad_detection_rule": "size drop > 40% between consecutive readings = bad reading, not distance",
-    "servo": {"x_target_ready": 470, "x_target_grasp": 540, "x_tol": 30, "pan_gain_deg_per_px": 0.04,
-              "y_target": 300, "y_tol": 60, "elbow_gain_deg_per_px": 0.07, "size_at_grasp_height_px": [350, 380], "min_size_to_grasp_px": 280}
+  "elbow_flex": {
+   "negative": "unfold -> gripper forward and slightly up",
+   "rest": 83,
+   "ready": 70.5
   },
-  "poses_deg": {
-    "order": ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"],
-    "rest_default": [-2, -42.5, 80.7, 37.1, -7.5, 10],
-    "rest_user_2026-09-12": [-11.78, -45.71, 83.3, 54.11, -12.62, 2.73],
-    "ready_look_down": [-2, 0, 70.5, 37.5, null, 60],
-    "grasp_examples": [[-19, 39.1, 59.9, 15.4, -12.6, 60], [-22.3, 48.9, 54.5, 9.7, -12.6, 60]],
-    "carry": "from grasp: shoulder_lift -10 twice (wrist +5 each)",
-    "drop_over_tin": [6.8, 26.5, 47.7, 5, null, "open to 60"],
-    "unfold_path_from_rest": [[null, -32, 80.7, 37], [null, -22, 78, 36], [null, -12, 74, 35], [null, -3, 70.5, 36], [null, 0, 70.5, 37.5, null, 60]],
-    "retreat_path_from_drop": [[null, 20, 56, 5], [-2, null, null, null, null, 10], [null, 10, 66, 15], [null, 0, 68.5, 22], [null, -10, 72, 30], [null, -20, 77, 35], [null, -30, 80, 37], "then rest.json"]
+  "wrist_flex": {
+   "negative": "tips/camera pitch forward",
+   "look_down_rule": "wrist = 37.5 - 0.7 * shoulder_lift (approx)",
+   "ready": 37.5
   },
-  "scene_2026-09-12": {
-    "table": "light oak, glossy", "brick_start_top_image_xy": [590, 255], "tin_top_image_xy": [725, 245], "tin": "round metal tin ~8 cm diameter, ~5.5 cm tall, orange/red label",
-    "arm_base_top_image_xy": [680, 520]
+  "shoulder_pan": {
+   "positive": "gripper moves right in wrist image (scene shifts left)",
+   "px_per_deg_wrist_image": "17..33 depending on height"
   },
-  "interfaces": {
-    "cmd_dir": "var/cmd/ (atomic write: .tmp then rename)", "done_dir": "var/done/",
-    "state_extra": "state adds load{joint}, load_limit{joint}, loop_hz; /state adds floor.arm [[r,z],..] m, floor.margin_cm, floor.grasp_cm; GET /log?n= returns the log tail", "state_file": "var/state.json (5 Hz)", "log": "var/bridge.log", "snapshots": ["var/top.jpg", "var/wrist.jpg"],
-    "http": "http://localhost:8765 (/, /state, /waypoints, /cmd?a=..., /top.mjpg, /wrist.mjpg)",
-    "recordings": "var/recordings/rec_*.jsonl rows {t, time, mode, torque, pos} and {t, event, ...}"
+  "wrist_roll": {
+   "note": "unused; keep at -12.6 (current) or -7.5"
   },
-  "runs": [
-    {"time": "17:00-17:15", "mode": "manual step-by-step via cmd files", "result": "success", "notes": "table contact once (my height misjudgement); user stopped"},
-    {"time": "17:25", "mode": "auto v2 fixed waypoints", "result": "fail: brick lost (fragmented detection)"},
-    {"time": "17:30", "mode": "auto v2.1", "result": "fail: out of reach with fixed waypoints"},
-    {"time": "17:58", "mode": "auto v3 visual servo w/o floor model", "result": "stopped by user: table contact after detector fragmented on washed-out brick"},
-    {"time": "18:27", "mode": "auto v3.3 floor model", "result": "SUCCESS", "grasp_tip_z_cm": 1.3, "brick_px": 351, "gripper_stall": 20.4},
-    {"time": "18:31", "mode": "auto v3.3 floor model", "result": "SUCCESS", "grasp_tip_z_cm": 1.4, "brick_px": 367, "gripper_stall": 20.4}
+  "gripper": {
+   "open": 60,
+   "close_command": 10,
+   "stall_when_holding_brick": 20.4,
+   "empty_close_reaches": "<14"
+  }
+ },
+ "limits_deg": {
+  "source": "calibration sweep +/-3deg margin, widened by limits.json extend",
+  "shoulder_pan": [
+   -91.8,
+   91.8
+  ],
+  "shoulder_lift": [
+   -47,
+   98
+  ],
+  "elbow_flex": [
+   -80.4,
+   84.5
+  ],
+  "wrist_flex": [
+   -83.8,
+   83.8
+  ],
+  "wrist_roll": [
+   -177,
+   177
+  ],
+  "gripper": [
+   0,
+   100
+  ],
+  "physical_note": "shoulder_lift measured by hand to reach 101 forward; rest pose sits on mechanical stops at lift -45.5 / elbow 83"
+ },
+ "safety": {
+  "max_step_deg_per_command": 12,
+  "default_speed_deg_s": 5,
+  "max_speed_deg_s": 30,
+  "recommended_speed_near_objects_deg_s": 4,
+  "stall_guard": {
+   "lag_deg": 4,
+   "seconds": 0.7
+  },
+  "load_guard_of_1000": {
+   "shoulder_pan": 300,
+   "shoulder_lift": 400,
+   "elbow_flex": 450,
+   "wrist_flex": 300,
+   "wrist_roll": 300
+  },
+  "floor_guard": {
+   "min_tip_height_m_for_goals": 0.008,
+   "freeze_below_m": 0.0
+  },
+  "reach_tolerance_deg": 3,
+  "estop_file": "ESTOP (repository root)",
+  "known_gap": "pushing down into the table produces little motor load; only the floor model catches it"
+ },
+ "floor_model": {
+  "type": "planar 3-link chain, height independent of pan",
+  "link_lengths_m": {
+   "L1": 0.1159,
+   "L2": 0.135,
+   "L3": 0.11
+  },
+  "fit_2026-09-12": {
+   "points": 7,
+   "rms_mm": 1.4,
+   "offsets_deg": [
+    51.5,
+    -100.0,
+    29.3
+   ],
+   "z0_m": 0.096,
+   "signs": [
+    1,
+    1,
+    1
+   ],
+   "z0_measured": false
+  },
+  "known_predictions_cm": {
+   "ready_0_70.5_37.5": 3.6,
+   "grasp_42.1_69.1_7.9": 0.1,
+   "squeeze_70.8_57_-4": -1.8,
+   "drop_26.5_47.7_5": 11.2,
+   "rest_-45.5_83_22.7": "11.1 (WRONG, extrapolation; real ~2)"
+  },
+  "improve": "measure shoulder-lift shaft height above table -> floor_config.json {\"z0\": metres}; add contacts at known heights (brick top 0.019 m)",
+  "grasp_target_tip_height_m": 0.01
+ },
+ "vision": {
+  "brick": "yellow Duplo 2x4, 64x32x19 mm, top studs",
+  "hsv_gate": {
+   "h": [
+    14,
+    40
+   ],
+   "s_min": 40,
+   "v_min": 80
+  },
+  "morphology": {
+   "open": 5,
+   "close": 21
+  },
+  "shape_filters": {
+   "solidity_min": 0.7,
+   "fill_min": 0.5,
+   "min_area_px": 600
+  },
+  "distractors": {
+   "table": "sat <= 33",
+   "tin_label": "orange hue ~15, ring-shaped, rejected by hue/shape"
+  },
+  "bad_detection_rule": "size drop > 40% between consecutive readings = bad reading, not distance",
+  "servo": {
+   "x_target_ready": 470,
+   "x_target_grasp": 540,
+   "x_tol": 30,
+   "pan_gain_deg_per_px": 0.04,
+   "y_target": 300,
+   "y_tol": 60,
+   "elbow_gain_deg_per_px": 0.07,
+   "size_at_grasp_height_px": [
+    350,
+    380
+   ],
+   "min_size_to_grasp_px": 280
+  }
+ },
+ "poses_deg": {
+  "order": [
+   "shoulder_pan",
+   "shoulder_lift",
+   "elbow_flex",
+   "wrist_flex",
+   "wrist_roll",
+   "gripper"
+  ],
+  "rest_default": [
+   -2,
+   -42.5,
+   80.7,
+   37.1,
+   -7.5,
+   10
+  ],
+  "rest_user_2026-09-12": [
+   -11.78,
+   -45.71,
+   83.3,
+   54.11,
+   -12.62,
+   2.73
+  ],
+  "ready_look_down": [
+   -2,
+   0,
+   70.5,
+   37.5,
+   null,
+   60
+  ],
+  "grasp_examples": [
+   [
+    -19,
+    39.1,
+    59.9,
+    15.4,
+    -12.6,
+    60
+   ],
+   [
+    -22.3,
+    48.9,
+    54.5,
+    9.7,
+    -12.6,
+    60
+   ]
+  ],
+  "carry": "from grasp: shoulder_lift -10 twice (wrist +5 each)",
+  "drop_over_tin": [
+   6.8,
+   26.5,
+   47.7,
+   5,
+   null,
+   "open to 60"
+  ],
+  "unfold_path_from_rest": [
+   [
+    null,
+    -32,
+    80.7,
+    37
+   ],
+   [
+    null,
+    -22,
+    78,
+    36
+   ],
+   [
+    null,
+    -12,
+    74,
+    35
+   ],
+   [
+    null,
+    -3,
+    70.5,
+    36
+   ],
+   [
+    null,
+    0,
+    70.5,
+    37.5,
+    null,
+    60
+   ]
+  ],
+  "retreat_path_from_drop": [
+   [
+    null,
+    20,
+    56,
+    5
+   ],
+   [
+    -2,
+    null,
+    null,
+    null,
+    null,
+    10
+   ],
+   [
+    null,
+    10,
+    66,
+    15
+   ],
+   [
+    null,
+    0,
+    68.5,
+    22
+   ],
+   [
+    null,
+    -10,
+    72,
+    30
+   ],
+   [
+    null,
+    -20,
+    77,
+    35
+   ],
+   [
+    null,
+    -30,
+    80,
+    37
+   ],
+   "then rest.json"
   ]
+ },
+ "scene_2026-09-12": {
+  "table": "light oak, glossy",
+  "brick_start_top_image_xy": [
+   590,
+   255
+  ],
+  "tin_top_image_xy": [
+   725,
+   245
+  ],
+  "tin": "round metal tin ~8 cm diameter, ~5.5 cm tall, orange/red label",
+  "arm_base_top_image_xy": [
+   680,
+   520
+  ]
+ },
+ "interfaces": {
+  "cmd_dir": "var/cmd/ (atomic write: .tmp then rename)",
+  "done_dir": "var/done/",
+  "state_extra": "state adds load{joint}, load_limit{joint}, loop_hz; /state adds floor.arm [[r,z],..] m, floor.margin_cm, floor.grasp_cm; GET /log?n= returns the log tail",
+  "state_file": "var/state.json (5 Hz)",
+  "log": "var/bridge.log",
+  "snapshots": [
+   "var/top.jpg",
+   "var/wrist.jpg"
+  ],
+  "http": "http://localhost:8765 (/, /state, /waypoints, /cmd?a=..., /top.mjpg, /wrist.mjpg)",
+  "recordings": "var/recordings/rec_*.jsonl rows {t, time, mode, torque, pos} and {t, event, ...}"
+ },
+ "runs": [
+  {
+   "time": "17:00-17:15",
+   "mode": "manual step-by-step via cmd files",
+   "result": "success",
+   "notes": "table contact once (my height misjudgement); user stopped"
+  },
+  {
+   "time": "17:25",
+   "mode": "auto v2 fixed waypoints",
+   "result": "fail: brick lost (fragmented detection)"
+  },
+  {
+   "time": "17:30",
+   "mode": "auto v2.1",
+   "result": "fail: out of reach with fixed waypoints"
+  },
+  {
+   "time": "17:58",
+   "mode": "auto v3 visual servo w/o floor model",
+   "result": "stopped by user: table contact after detector fragmented on washed-out brick"
+  },
+  {
+   "time": "18:27",
+   "mode": "auto v3.3 floor model",
+   "result": "SUCCESS",
+   "grasp_tip_z_cm": 1.3,
+   "brick_px": 351,
+   "gripper_stall": 20.4
+  },
+  {
+   "time": "18:31",
+   "mode": "auto v3.3 floor model",
+   "result": "SUCCESS",
+   "grasp_tip_z_cm": 1.4,
+   "brick_px": 367,
+   "gripper_stall": 20.4
+  }
+ ],
+ "painting": {
+  "version": "3.7",
+  "date": "2026-09-14",
+  "hover_cm": 3.0,
+  "press_cm": 0.15,
+  "dip_every_cm": 6.0,
+  "probes": [
+   {
+    "u": 6.7,
+    "v": 4.7,
+    "z_touch_cm": 1.5,
+    "note": "touch at commanded z (cleared at 2.5) | -0.5 after shoulder P 32->48 (measured at house: 1.5 -> 1.0)"
+   },
+   {
+    "u": 14.4,
+    "v": 8.8,
+    "z_touch_cm": 1.0,
+    "note": "touch at commanded z (cleared at 2.0) | -0.5 after shoulder P 32->48 (measured at house: 1.5 -> 1.0)"
+   },
+   {
+    "u": 4.5,
+    "v": 12.0,
+    "z_touch_cm": 1.0,
+    "note": "assumed, per operator | -0.5 after shoulder P 32->48 (measured at house: 1.5 -> 1.0)"
+   }
+  ],
+  "load_limit_shoulder_lift": 600,
+  "stall_deg": 6.0,
+  "p_gain_shoulder_lift": 48,
+  "reference_plan": "paintings/landscape.plan.json",
+  "strokes": 14,
+  "colour_changes": 3
+ }
 }

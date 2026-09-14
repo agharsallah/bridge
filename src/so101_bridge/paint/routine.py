@@ -11,6 +11,24 @@ from ..util import log
 from . import program as store
 
 PHASES = ("preflight", "start", "painting", "finish", "done")
+BRIDGE_STEP_DEG = 8.0      # densify the approach from wherever the arm is to a step's first point
+
+
+def _bridge_from_present(ctrl, points):
+    """Prepend a densified approach from the arm's present pose to the first point of a step.
+
+    Programs are compiled without knowing where the arm will be when they start (rest, or wherever a
+    previous run was interrupted). A far first point would be step-capped to 12 deg by the control loop and
+    the arm would run the rest of the step from the wrong place — so walk there first, in small steps."""
+    st, _ = ctrl.snapshot(); present = st.get("present") or {}
+    first = points[0]
+    joints = [j for j in first if j in present]
+    if not joints: return points
+    far = max(abs(first[j] - present[j]) for j in joints)
+    if far <= BRIDGE_STEP_DEG: return points
+    n = int(far // BRIDGE_STEP_DEG) + 1
+    lead = [{j: round(present[j] + (first[j] - present[j]) * k / n, 3) for j in joints} for k in range(1, n)]
+    return lead + list(points)
 
 
 @routine("paint", label="PAINT — run a saved program",
@@ -27,7 +45,14 @@ def run(ctrl):
     prog = store.load(name) if name else None
     if not prog:
         return fail(f"program {name!r} not found")
-    steps = prog["steps"]; n = len(steps)
+    steps = prog["steps"]
+    from_stroke = req.get("from_stroke")
+    if from_stroke is not None:                      # resume: start with the dip/rinse that precedes stroke N
+        first = next((i for i, st in enumerate(steps) if st["op"] == "stroke" and st.get("index", 0) >= int(from_stroke)), None)
+        if first is None: return fail(f"no stroke >= {from_stroke} in {name}")
+        prev = max((i for i in range(first) if steps[i]["op"] == "stroke"), default=-1)
+        steps = steps[prev + 1:]; log(f"PAINT: resuming {name} from stroke {from_stroke} (step {prev + 1})")
+    n = len(steps)
     strokes_total = prog["stats"].get("strokes", 0)
     done_strokes, color = [], None
     with ctrl.lock:
@@ -51,7 +76,8 @@ def run(ctrl):
                 if ctrl.routine_abort.is_set(): return fail("aborted during dwell")
                 time.sleep(0.05)
             continue
-        if not ctrl.path(st["points"], st.get("speed", 6.0)):
+        pts = _bridge_from_present(ctrl, st["points"])
+        if not ctrl.path(pts, st.get("speed", 6.0)):
             return fail(f"move interrupted at step {i}/{n}: {st.get('label')} (guard, ESTOP or timeout)")
         if st["op"] == "stroke":
             done_strokes.append(st.get("index"))

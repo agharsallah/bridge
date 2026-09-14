@@ -6,6 +6,7 @@ the same chain of guards: step cap, soft limits, floor model, load guard, stall 
 """
 
 import json
+from pathlib import Path
 import shutil
 import signal
 import threading
@@ -15,6 +16,8 @@ import traceback
 from . import dashboard, hardware, paths, vision
 from .controller import Controller
 from .floor import FLOOR_FREEZE, FLOOR_MARGIN
+from .paint import kinematics as paint_kin
+from .paint import program as paint_program
 from .paint import vision as paint_vision
 from .paint import workspace as paint_ws
 from .paths import CMD_DIR, DONE_DIR, ESTOP, SNAPSHOT, STATE_FILE
@@ -29,6 +32,7 @@ from .settings import (
     MAX_SPEED,
     MAX_STEP_DEG,
     REACH_TOL,
+    SETTLE_SEC,
     STALL_DEG,
     STALL_SEC,
     STATE_EVERY,
@@ -61,6 +65,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
     torque_on, mode, last_cmd_name = True, "hold", None
     last_state, seq, loop_i = 0.0, 0, 0
     stall_since, last_load_warn = None, 0.0
+    settle_since, last_settle_pose = None, None
     last_loads, loop_hz = {}, float(LOOP_HZ)
     path_queue, path_total = [], 0          # continuous waypoint execution ({"action": "path"})
     stop = {"flag": False}
@@ -177,7 +182,48 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     robot.bus.enable_torque(num_retry=5); torque_on = True; goal, cmd, mode = dict(present), dict(present), "hold"
                     log("torque engaged (holding current pose)"); ctrl.rec_write({"event": "engage"})
                 elif act == "auto": ctrl.start_auto()
-                elif act == "routine": ctrl.start_routine(c.get("name", "pick_place"))
+                elif act == "routine":
+                    if c.get("program"): ctrl.paint_request = {"name": c["program"]}
+                    ctrl.start_routine(c.get("name", "pick_place"))
+                elif act == "paint":                       # run a saved painting program from a file command
+                    ctrl.paint_request = {"name": c.get("program"), "from_stroke": c.get("from_stroke")}; ctrl.start_routine("paint")
+                elif act == "paint_compile":               # hand-written plan (paper cm) -> saved program
+                    try:
+                        plan = c.get("plan")
+                        if isinstance(plan, str): plan = json.loads(Path(plan).read_text())
+                        ws = paint_ws.load(); tool = paint_kin.ToolModel(ctrl.floor, ws, limits)
+                        prog = paint_program.compile_plan(plan, ws, tool, c.get("name", "plan"), dry_run=bool(c.get("dry")))
+                        paint_program.save(prog)
+                        if prog["skipped"]: log(f"paint: compile skipped unreachable strokes {prog['skipped']}")
+                    except Exception as e:
+                        log(f"paint compile error: {e}")
+                elif act == "paint_goto":                  # brush tip to paper (u, v) cm at z cm, via the tool model
+                    try:
+                        ws = paint_ws.load(); tool = paint_kin.ToolModel(ctrl.floor, ws, limits)
+                        z = float(c.get("z", ws["brush"]["hover_cm"]))
+                        if not c.get("raw"): z += paint_program.z_correction(ws)(float(c["u"]), float(c["v"]))
+                        pose = tool.uv_to_pose(float(c["u"]), float(c["v"]), z)
+                        if pose is None: log(f"paint_goto: ({c['u']}, {c['v']}, z={z}) unreachable")
+                        else:
+                            far = max(abs(pose[j] - present[j]) for j in pose); n = int(far // 8.0) + 1
+                            pts = [{j: present[j] + (pose[j] - present[j]) * k / n for j in pose} for k in range(1, n + 1)]
+                            log(f"paint_goto: ({c['u']}, {c['v']}) z={z:.2f} cm -> { {k: round(v, 1) for k, v in pose.items()} } in {n} steps")
+                            apply_path({"points": pts, "speed": float(c.get("speed", 4.0)), "src": "file"})
+                    except Exception as e: log(f"paint_goto error: {e}")
+                elif act == "paint_mark_extra":            # present pose = brush tip ON the paper at (u, v)
+                    try: paint_ws.mark_extra(float(c["u"]), float(c["v"]), present)
+                    except Exception as e: log(f"paint_mark_extra error: {e}")
+                elif act == "paint_probe":                 # record: brush touched the paper at (u, v) when commanded z (raw)
+                    try:
+                        d = paint_ws.load(); d.setdefault("probes", [])
+                        d["probes"] = [p for p in d["probes"] if (p["u"], p["v"]) != (float(c["u"]), float(c["v"]))]
+                        d["probes"].append({"u": float(c["u"]), "v": float(c["v"]), "z_touch_cm": float(c["z"]), "note": c.get("note", "")})
+                        paint_ws.save(d); log(f"paint: probe ({c['u']}, {c['v']}) touches at commanded z={c['z']} cm ({len(d['probes'])} probes)")
+                    except Exception as e: log(f"paint_probe error: {e}")
+                elif act == "paint_brush":                 # brush parameters, e.g. {"action":"paint_brush","z_offset_cm":1.2}
+                    paint_ws.set_brush(**{k: v for k, v in c.items() if k != "action"})
+                elif act == "video_start": ctrl.video.start(c.get("name", "clip"))
+                elif act == "video_stop": ctrl.video.stop()
                 elif act == "rest": ctrl.go_rest()
                 elif act == "write":
                     allowed = {"Max_Position_Limit", "Min_Position_Limit", "P_Coefficient", "D_Coefficient",
@@ -234,7 +280,20 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 if mode == "moving" and not moving and path_queue:
                     goal = dict(path_queue.pop(0)); moving = True          # next waypoint, no stop
                 if mode == "moving" and not moving and all(abs(present[j] - goal[j]) < REACH_TOL for j in ARM):
-                    mode = "reached"; log(f"reached { {k: round(v, 1) for k, v in present.items()} }")
+                    mode = "reached"; settle_since = None; log(f"reached { {k: round(v, 1) for k, v in present.items()} }")
+                elif mode == "moving" and not moving and not path_queue:
+                    # interpolation finished, nothing queued, but a joint sags between REACH_TOL and the stall
+                    # threshold (the elbow does this when the arm is stretched out): once the arm has stopped
+                    # moving for SETTLE_SEC it *is* where it is going to be — report it, with the residual.
+                    if last_settle_pose and max(abs(present[j] - last_settle_pose[j]) for j in ARM) < 0.5:
+                        settle_since = settle_since or time.time()
+                        if time.time() - settle_since > SETTLE_SEC:
+                            res = {j: round(present[j] - goal[j], 1) for j in ARM if abs(present[j] - goal[j]) >= REACH_TOL}
+                            mode = "reached"; settle_since = None
+                            log(f"reached (settled, residual {res}) { {k: round(v, 1) for k, v in present.items()} }")
+                    else: settle_since = None
+                    last_settle_pose = dict(present)
+                else: settle_since = None
             elif torque_on and mode in ("reached", "stalled"):
                 robot.send_action({f"{j}.pos": cmd[j] for j in JOINTS})
 
@@ -269,7 +328,10 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                       "last_cmd": last_cmd_name, "estop": ESTOP.exists(),
                       "tip_z_cm": round(zp * 100, 1) if zp is not None else None,
                       "load": last_loads, "load_limit": LOAD_LIMIT, "loop_hz": round(loop_hz, 1),
-                      "path": {"remaining": len(path_queue), "total": path_total} if (path_queue or mode == "moving") and path_total else None}
+                      "path": {"remaining": len(path_queue), "total": path_total} if (path_queue or mode == "moving") and path_total else None,
+                      "auto": ctrl.routine_status,
+                      "progress": {k: ctrl.progress.get(k) for k in ("routine", "phase", "detail", "paint")},
+                      "video": ctrl.video.status()}
                 with ctrl.lock: ctrl.state = st
                 atomic_write(STATE_FILE, json.dumps(st, indent=1).encode()); last_state = now
         except Exception:
