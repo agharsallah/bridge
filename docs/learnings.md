@@ -120,3 +120,17 @@ Second pass: fill the sky (blue) and the ground (green) so no paper stays white.
   the light shapes *after* the surrounding fill if they must stay clean (or mask them with a dry stroke gap).
 - **Blanks in a fill**: 0.8 cm row pitch left gaps where the brush ran dry mid-row. Use 0.6 cm pitch (overlap),
   dip before every row, and cross-hatch (a second pass at a different v offset) for a solid area.
+
+## Touch-up pass and signature (18:14–18:23)
+
+`paintings/touchup.plan.json`: 10 green rows offset half a pitch from the first fill (cross-hatch), 5 yellow chords
+inside the sun (pan sweeps), and "Claude" in red as 6 block-letter polylines (0.8 × 1.2 cm per letter, u 12.9→19.5,
+v 12.2). 21 strokes, 2 colour changes, ~8 min including one interruption.
+- **Cross-hatch works**: the second green pass, offset 0.4 cm, closed every blank in the ground.
+- **Re-painting a light colour over a dried dark bleed** recovers the shape: 5 yellow chords brought the sun back.
+- **Bogus load packet**: `LOAD GUARD {'shoulder_pan': 776, 'shoulder_lift': 976, 'wrist_roll': -998}` during a plain
+  travel, with normal loads one tick later — three joints at once near ±1000 is a corrupt Feetech read, not a
+  collision. TODO: make the load guard require two consecutive over-limit samples (or reject |load| > 900 on
+  more than one joint at once) before freezing. Resume was one `paint … from_stroke` away.
+- **Lettering**: with a 6 mm brush, letters need ≥1.2 cm height and ≥0.3 cm gaps to stay legible; a 5-point
+  polyline per letter is enough. Sign last, after the background has dried.
