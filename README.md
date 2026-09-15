@@ -50,6 +50,8 @@ in once the daemon is running.
 | `make clean` | drop `var/` runtime artifacts (keeps `config/`) |
 | `scripts/STOP.command` / `RESUME.command` / `RELEASE.command` | double-click in Finder: STOP, RESUME, torque off |
 | `scripts/paint.sh <plan> [from_stroke]` | compile `paintings/<plan>.plan.json` and run it without a browser or agent; `DRY=1` runs the same moves at hover height (see `docs/operations.md` §11) |
+| `scripts/chess.sh <command>` | teach the board, fit it, and play a whole game from a terminal — `teach`, `done`, `compile`, `verify`, `new`, `play`, `wait`, `move`, `confirm` (see `docs/operations.md` §12) |
+| `scripts/chess.sh learned` / `apply <id>` | what the accumulated history says about grasps and squares, and applying one of its suggestions to `config/chess.json` |
 
 Emergency stop is always a `touch ESTOP` away at the repository root, and always cleared with `make resume` or the
 dashboard **RESUME** button — restarting the bridge never drops torque, the arm holds its pose through a restart.
@@ -64,6 +66,10 @@ dashboard **RESUME** button — restarting the bridge never drops torque, the ar
 | `scripts/` | double-clickable `STOP` / `RESUME` / `RELEASE` for the operator |
 | `docs/` | operations manual, learnings, machine-readable `metadata.json`, decision log |
 | `paintings/` | compiled painting programs (`<name>.json`): joint poses for every step, replayable without model or cameras |
+| `puzzles/` | chess puzzles: a FEN, which colour the robot plays and the solution line |
+| `config/teach/` | guided teaching sessions: what the daemon asks the operator to do, step by step |
+| `var/games/` | one document per chess game (`<id>.json`) plus a PGN mirror — the ~300-byte file the LLM reads |
+| `var/chess_history.jsonl` | every grasp, place and verification ever attempted — the evidence behind the suggestions on `/chess` |
 | `tests/` | unit tests for the parts that need no hardware |
 | `ESTOP` | presence of this file freezes the arm; kept at the root so it is one short `touch` away |
 
@@ -76,7 +82,9 @@ dashboard **RESUME** button — restarting the bridge never drops torque, the ar
 | `controller.py` | shared state, command queue, recording, waypoints, motion helpers |
 | `routines.py` | registry of named routines; a routine is `run(ctrl)` that only requests goals and reports `ctrl.phase(...)` |
 | `autopick.py` | the built-in `pick_place` routine (registered via `@routine`) |
+| `shared/` | what every task needs: tool-tip kinematics on a taught flat surface (`plane.py`), path/densify/travel helpers (`motion.py`), JSON config helpers (`store.py`), guided teaching sessions (`teach.py`) |
 | `paint/` | painting: taught workspace (`workspace.py`), brush-tip kinematics on the paper plane (`kinematics.py`), picture → hatch strokes (`planner.py`), strokes → replayable joint program (`program.py`), the `paint` routine (`routine.py`) |
+| `chess/` | chess: taught board (`workspace.py`), gripper kinematics on the board (`kinematics.py`), overhead board reading (`vision.py`), rules and occupancy → move (`game.py`), who chooses the move (`players.py`), move → arm motion (`physical.py`), the game document (`log.py`), what every attempt taught us (`history.py`), the routines (`routine.py`) |
 | `floor.py` | fitted floor model: predicted fingertip height, the guard that protects the table |
 | `vision.py` | brick detection and the dashboard overlay |
 | `dashboard.py` + `web/dashboard.html` | local HTTP dashboard (status chips, camera streams, to-scale side view of the floor model, joint tracks with load, tip-height and tracking-error charts, log tail) and the JSON/MJPEG interfaces |
@@ -113,6 +121,33 @@ agent can follow a run without the page. Start a routine with `/cmd?a=routine&na
 
 Requires the floor model (the tool model builds on its fitted chain). Poses in a program are precomputed,
 so a picture painted once can be painted again later from the saved file.
+
+## Chess (http://localhost:8765/chess)
+
+Not yet run on the arm — the board model, the move logic and the turn loop are tested against a simulated
+arm; the first hardware session is `docs/operations.md` §12.6.
+
+1. **Teach** — the daemon reads out an 18-step session (`config/teach/chess_board.json`): free-drive the
+   closed fingertips onto the centres of a1, h1, h8 and a8, two check squares, then grip each kind of
+   piece once and mark the handover, feed and reserve spots. Press Done at each step; everything is
+   written to `config/chess.json` as it is recorded.
+2. **Fit** — the board model puts the jaws on any square at any height. The gripper's reach is given
+   rather than fitted, so a mis-measured jaw offset shows up as a residual instead of being absorbed.
+   The page prints the lean each of the 64 squares needs at grasp, hover and carry height.
+3. **Verify** — the arm visits every taught point so you can see where the tip really lands.
+4. **Play** — the human's move is read from the overhead camera (occupancy diff against the position the
+   rules engine already knows) or typed; the robot's is chosen by an engine, a scripted puzzle line or
+   the LLM, and executed as pick/place actions with every guard still in force. Anything the arm cannot
+   do — an unreachable square, an ambiguous reading, a promotion — becomes a `needs` a person answers.
+
+5. **Watch and learn** — the page draws the position, what the camera sees against what should be there,
+   the arm and the board in a to-scale side view, the live joint pose (copyable, as JSON or as a ready
+   command), grasp success per piece and the squares that keep going wrong. Every attempt is appended to
+   `var/chess_history.jsonl`, and once there is enough evidence the page suggests concrete edits —
+   *lower the knight's grasp height by 3 mm*, *raise the pawn's miss threshold* — each with an Apply
+   button. Nothing is ever applied on its own.
+
+The LLM never sees a frame and never applies a rule: it reads `var/games/<id>.json` and writes one move.
 
 ## Development
 

@@ -282,3 +282,189 @@ of STOP; between runs put the brush back in the gripper if it was removed and ch
 
 Guard settings that painting needs (`config/settings.json`): `LOAD_LIMIT.shoulder_lift 600` (the stretched arm
 alone reads 400–490), `STALL_DEG 6` (shoulder sag at full reach is 3.5–4.5° at P=32), `P_GAIN.shoulder_lift 48`.
+
+
+## 12. Chess and guided teaching (added 3.8, 2026-09-15)
+
+Chess is a discrete pick-and-place on a taught plane, built out of the same parts as painting: the
+plane model, the guarded `path` replay, the probe-based height correction and the routine registry now
+live in `src/so101_bridge/shared/` and belong to neither task. What is new is guided teaching, board
+vision, the rules engine (`python-chess`) and three routines.
+
+**Nothing here has run on the arm yet.** The board model, the move logic, the physical planning and the
+turn loop are tested against a simulated arm; the geometry below is what the code assumes, not what has
+been measured. P0 (§12.6) is the first session on real hardware.
+
+### 12.1 The board's coordinate frame
+
+`u` runs left to right as the robot sees the board, `v` from the far edge towards the robot. The plane
+the model is fitted to spans **corner centre to corner centre** — 7 pitches, 25.375 cm on a 29 cm board —
+because the four taught contacts are the closed fingertips on the centres of a1, h1, h8 and a8.
+
+`config/chess.json["board"]["robot_side"]` names the colour sitting in front of the robot; its home rank
+is the near one and its queenside is on the robot's left. Turning the board round is that one word, not
+a re-teach: the same taught corners are reinterpreted. Nothing else in the package knows the orientation.
+
+### 12.2 Guided teaching (any workspace, not just chess)
+
+    scripts/chess.sh teach          # or the Start button on /chess
+    scripts/chess.sh free           # torque off — the daemon tells you where to put the arm
+    scripts/chess.sh done           # record this point, move to the next
+    scripts/chess.sh skip | back    # leave one out / go back one
+
+The session is a file: `config/teach/chess_board.json`, 18 steps — four corners, two check squares, six
+grasps, four slots, two notes. `/state.teach` carries the current prompt, the step number and what has
+been recorded so far; every Done writes straight into `config/chess.json`, so an aborted session keeps
+what it already learned. `teach_fix <id>` re-records one step without redoing the rest.
+
+What each step records: a **contact** stores the arm pose; a **grasp** stores the pose *and* the gripper
+opening, and the model turns it into a height above the board and the lean used, which is what gets
+reproduced on all 64 squares; a **probe** stores where the tip really touched at a commanded height.
+
+### 12.3 Board model and the reachability report
+
+    scripts/chess.sh compile        # fit, print the report, record the unreachable squares
+    scripts/chess.sh verify         # ARM MOVES: visit every taught point at hover, descend to 1 cm
+    scripts/chess.sh goto e4 6      # ARM MOVES: jaws over e4, 6 cm above the board
+
+The gripper's reach (wrist axis → jaw centre) is **given**, not fitted: `gripper.tool_len_cm`, seeded
+with the floor model's L3 = 11 cm. Measure it in P0 and correct it — a wrong value shows up as a board
+residual rather than being quietly absorbed, which is the point of fixing it.
+
+The report prints the lean, in degrees, that each of the 64 squares needs at grasp, hover and carry
+height, and `--` where no pose inside the joint limits reaches. Squares with no grasp pose at all are
+written to `chess.json["unreachable"]`; the routine plays those moves by asking a human.
+
+### 12.4 Playing
+
+    scripts/chess.sh new human llm  # who plays which colour: human | llm | engine
+    scripts/chess.sh play
+    scripts/chess.sh wait           # blocks until it is the LLM's turn or the game ends
+    scripts/chess.sh game           # the game document, ~300 bytes of FEN + move list
+    scripts/chess.sh move e7e5      # the arm plays it (or asks a human if it cannot reach)
+    scripts/chess.sh confirm        # "yes, that is what I played" / "I have fixed the board"
+
+The LLM never sees a frame and never applies a rule. It reads `var/games/<id>.json` and writes one move;
+`python-chess` decides legality and the daemon decides how to move the arm.
+
+The human's move is read from the overhead camera when the board's image corners have been taught, and
+typed with `chess.sh move` otherwise — the game is fully playable with no camera at all. A camera reading
+is believed only when it has been **stable** for `CHESS_STABLE_N` frames and the change is **sane** (at
+most four squares, consistent with some legal move). With `CHESS_AUTO_TRIGGER=false`, the default, a
+reading the camera is sure about still waits for `chess_confirm`.
+
+The board is only ever read with the arm at rest — while it is moving it covers the board.
+
+### 12.5 What the /chess page shows
+
+Six panels beyond the teaching and board controls, all fed by `/chess/state` so an agent sees exactly
+what the page does:
+
+| Panel | What it draws | Needs |
+|---|---|---|
+| **Position** | the position from the FEN, pieces on a chequered 8x8, last move outlined, in the robot's own view (its back rank at the bottom) | nothing — it draws the start position before any game |
+| **Camera reading** | the same 8x8, green where the camera sees a piece and red where it disagrees with the position; plus the warped board image with the square grid on it | image corners taught **and** an empty-board reference captured — the panel says which of the two is missing |
+| **Arm and board, side view** | the arm to scale as the floor model sees it, with the taught board plane and the grasp / hover / carry heights drawn on it | the floor model fitted |
+| **Present pose** | the live joint pose, selectable, with *Copy JSON*, *Copy as a goal command* and *Save as waypoint* | nothing |
+| **What the history has learned** | grasp success per piece as bars, and an 8x8 of the squares that went wrong | some history |
+| **Suggestions** | what the evidence supports changing, each with an Apply button | at least four attempts at the same thing |
+
+The camera panel needs one extra step the rest do not: **Capture empty board** (`chess.sh reference`,
+`{"action": "chess_reference"}`) with the board clear. Every reading is a difference from that reference,
+so it has to be taken when there really is nothing on the board. The reader is then shared by the page
+and the routine, because its reference and fitted thresholds are what make two readings comparable.
+
+The reachability grid switches between grasp, hover and carry height, and clicking a square sends the
+jaws there — that is a real move, at the height in the box next to the grid.
+
+### 12.6 Learning over time
+
+Every grasp, place and verification appends one line to `var/chess_history.jsonl` — which piece, which
+square, the commanded height, the lean the IK really used, the opening the jaws settled at, and whether
+that counted as a hold. The routine never reads it back mid-game: it is the record, not the plan.
+
+    scripts/chess.sh learned          # grasp success per piece, squares that went wrong, suggestions
+    scripts/chess.sh apply <id>       # write one suggestion into config/chess.json
+
+`learned` turns the aggregate into suggestions, each naming the field, the current value, the proposed
+value and the evidence. **Nothing is applied on its own.** Two kinds:
+
+| Suggestion | Trigger | Applies to |
+|---|---|---|
+| lower a piece's grasp height by 0.3 cm | a quarter or more of that piece's grasps missed | `pieces.<p>.grasp_z_cm` |
+| raise a piece's miss threshold | every successful grasp settled well above the current threshold, so a near-miss would pass as a hold | `pieces.<p>.stall_min` |
+| teach this piece's grasp | it keeps missing and no grasp was ever taught for it | advice — no automatic form |
+| re-probe or re-teach around a square | that square keeps failing its grasp or its verification | advice — no automatic form |
+
+A suggestion needs at least four attempts at the same thing before it appears, so one bad grasp never
+moves anything. Applying one is logged with the before and after values, and recorded in the history
+itself, so a change that made things worse is visible and reversible.
+
+The vision thresholds learn separately and continuously: they are refitted from any position whose truth
+is known (the start of a game, and after every verified robot move) and written back to
+`config/chess.json["vision"]`.
+
+### 12.7 State, needs and log patterns
+
+`/state.chess` = `{id, mode, robot, players, fen, turn, waiting_for, phase, ply, last_move, needs, result}`.
+`needs` is the only channel for asking a person for something, and the routine holds until it is answered:
+
+| needs.kind | What happened | Remedy |
+|---|---|---|
+| `unreachable` | the arm cannot serve some action of the robot's move | play the move for it, then `chess.sh confirm` |
+| `feed` | setup wants the next piece | put it on the feed slot, then `confirm` |
+| `ambiguous` | the camera saw a change several legal moves would explain | `chess.sh move <uci>` |
+| `illegal_move` | a move that is not legal here, or a reading no legal move explains | fix the board or send a legal move |
+| `verify_failed` | after the arm moved, the camera does not see the expected position | fix the board, then `confirm` |
+| `grasp_failed` | the jaws closed on nothing (settled below the piece's `stall_min`) | routine stops; nothing is recorded that did not happen |
+| `off_book` | a puzzle line ran out or diverged | start a game instead |
+
+Log lines: `chess: <id> ply N <who> <san> (<uci>)` per move, `chess: <id> NEEDS <kind>: {...}` when it
+asks for help, `chess: reachability …` for the report, `teach: <session>/<step> recorded …` per taught
+point, `CHESS FAILED: …` when a routine stops.
+
+### 12.8 P0 — the first session on the arm
+
+1. Place the board, robot centred on the near edge. Set `robot_side`, size and camera on `/chess`.
+2. `scripts/chess.sh teach`, then work through the prompts. Measure the jaw-centre offset while you are
+   there and correct `gripper.tool_len_cm`; measure z0 and write `config/floor_config.json`.
+3. `scripts/chess.sh compile` — read the reachability report before anything moves.
+4. `scripts/chess.sh verify` — the arm visits every taught point. Watch where the tip actually lands.
+5. `DRY=1 scripts/chess.sh setup`, then a real setup, then `DRY=1 scripts/chess.sh play`.
+6. Photograph the board for `tests/fixtures/chess/` (empty, start, after e4, a capture, castling, a hand
+   in frame) — the vision tests in `tests/test_chess_vision.py` skip until those exist.
+
+Settings that chess adds (`config/settings.json`): `CHESS_CAM`, `CHESS_ENGINE`, `CHESS_ENGINE_LIMIT`,
+`CHESS_POLL_S`, `CHESS_STABLE_N`, `CHESS_STABLE_DIFF`, `CHESS_AUTO_TRIGGER`, `CHESS_CARRY_CM`,
+`CHESS_MAX_LEAN_DEG`, `CHESS_MOVE_TIMEOUT_S`.
+
+### 12.9 Command interface
+
+| JSON (`var/cmd/*.json`) | Meaning |
+|---|---|
+| `{"action":"teach_start","session":"chess_board"}` | begin a guided teaching session |
+| `{"action":"teach_done"}` / `teach_skip` / `teach_back` / `teach_abort` | drive it |
+| `{"action":"teach_fix","step":"a1"}` | jump back to one step and re-record it |
+| `{"action":"teach_free"}` / `teach_engage` | torque off / on, through the normal guards |
+| `{"action":"chess_board","size_cm":29,"robot_side":"white","cam":"top"}` | board placement |
+| `{"action":"chess_mark","square":"a1"}` | present pose = fingertips on that square's centre |
+| `{"action":"chess_slot","name":"handover"}` | present pose = that slot |
+| `{"action":"chess_image_corners","corners":{"a1":[x,y],…}}` | where the corners are in the camera frame |
+| `{"action":"chess_compile"}` | fit, report, record the unreachable squares |
+| `{"action":"chess_goto","square":"e4","z":6}` | jaws over a square (arm moves) |
+| `{"action":"chess_check_view"}` | can the camera see the board at all? |
+| `{"action":"chess_reference"}` | capture the EMPTY board — every camera reading is a difference from it |
+| `{"action":"chess_apply","id":"stall_p"}` | apply one suggestion from the history to `config/chess.json` |
+| `{"action":"chess_new","players":{"white":"human","black":"llm"}}` | start a game document |
+| `{"action":"chess_play"}` / `chess_setup` / `chess_verify` | run a routine (`"dry":true` for a dry run) |
+| `{"action":"chess_puzzle","puzzle":"mate_in_2_01"}` | set a FEN up and play the scripted line |
+| `{"action":"chess_move","move":"e7e5"}` | supply a move (the LLM's, or the one a human just played) |
+| `{"action":"chess_confirm"}` | answer whatever the game is waiting for |
+
+HTTP: `/chess` the page, `/chess/state` (everything the page draws), `POST /chess/cmd` with the same
+JSON, `/chess/<cam>.mjpg` the overhead view with the taught corners drawn on it, `/chess/warp.jpg` the
+warped board as a still, `/chess/game/<id>` the full game document, `/chess/history?n=200` the raw
+history rows plus the aggregate.
+
+Log lines the history adds: `chess: applied <id> — <path> <before> -> <after> (<why>)` when a suggestion
+is applied, and `chess: empty-board reference captured` when the camera gets its baseline.

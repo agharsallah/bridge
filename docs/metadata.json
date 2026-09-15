@@ -1,6 +1,6 @@
 {
  "schema": "so101-bridge-metadata/1",
- "updated": "2026-09-12",
+ "updated": "2026-09-15",
  "robot": {
   "type": "so_follower (SO-101 follower)",
   "lerobot_version": "0.6.2",
@@ -475,5 +475,87 @@
    "dip_dwell_s": 1.0,
    "minutes": 31
   }
+ },
+ "chess": {
+  "version": "3.8",
+  "date": "2026-09-15",
+  "status": "software only \u2014 nothing measured on the arm yet; every number below is an assumption to be replaced in P0",
+  "board_size_cm": 29.0,
+  "pitch_cm": 3.625,
+  "plane_cm": 25.375,
+  "plane_definition": "corner centre to corner centre (7 pitches); the taught contacts are the closed fingertips on the centres of a1, h1, h8, a8",
+  "uv_frame": "u left-to-right as the robot sees the board, v from the far edge towards the robot; board.robot_side names the colour in front of the arm and flips the mapping",
+  "gripper_tool_len_cm": {
+   "value": 11.0,
+   "source": "seeded from floor model L3",
+   "todo": "measure wrist axis -> jaw centre in P0"
+  },
+  "heights_cm": {
+   "grasp_default": 1.4,
+   "hover": 6.0,
+   "carry": 9.0,
+   "place_drop": 0.3
+  },
+  "max_lean_deg": 45,
+  "speeds_deg_s": {
+   "travel": 6.0,
+   "descend": 4.0
+  },
+  "vision": {
+   "warp_px": 512,
+   "centre_frac": 0.6,
+   "occ_threshold": null,
+   "stable_n": 4,
+   "stable_diff": 6.0,
+   "max_changed_squares": 4,
+   "note": "thresholds are refit from any position whose truth is known (game start, after every verified robot move)",
+   "reference": "chess_reference captures the empty board; every reading is a diff from it"
+  },
+  "auto_trigger": false,
+  "engine": {
+   "path": "",
+   "installed": false,
+   "note": "brew install stockfish; without it that side waits for chess_move"
+  },
+  "dependencies": {
+   "chess": "1.11.2"
+  },
+  "routines": [
+   "chess_play",
+   "chess_setup",
+   "chess_puzzle",
+   "chess_verify"
+  ],
+  "teach_session": {
+   "file": "config/teach/chess_board.json",
+   "steps": 18
+  },
+  "predicted_reach": {
+   "source": "drafts/chess-plan.md, fitted FloorModel with a free z0",
+   "claim": "rank 8 out of reach, rank 1 only at grasp height",
+   "confidence": "low \u2014 z0 is a free fit; treat as a warning, not a verdict"
+  },
+  "history": {
+   "file": "var/chess_history.jsonl",
+   "records": "one per grasp / place / move / verification: piece, square, commanded height, lean the IK used, settled jaw opening, whether it held",
+   "max_rows": 20000,
+   "recent_window": 40,
+   "suggestion_gates": {
+    "min_attempts": 4,
+    "miss_rate_warn": 0.25,
+    "grasp_step_cm": 0.3,
+    "stall_margin": 2.0
+   },
+   "auto_applied": false,
+   "note": "suggestions name the config path, the current value and the proposed one; an operator applies them with chess_apply"
+  },
+  "dashboard_panels": [
+   "position from the FEN",
+   "camera reading vs expected occupancy",
+   "arm and board side view",
+   "present pose (copyable)",
+   "grasp success per piece and bad squares",
+   "suggestions with Apply"
+  ]
  }
 }

@@ -158,3 +158,82 @@ geometry*, not from new hardware:
    missed reserve; the overhead view shows the whole sheet only when the arm is at a station or folded.
 Things still to improve: hill line as a soft two-tone (the light and dark greens of the reference are one green
 here); a towel dab; `abort` at a stroke boundary is manual — a `pause_at_stroke` flag would be cleaner.
+
+
+## Chess prep, 3.8 (2026-09-15) — software only, nothing run on the arm yet
+
+The board, pieces and camera have not been touched; this is what building the chess side taught us about
+the code, and what the first hardware session has to settle.
+
+1. **Painting and chess share a plane, not a tool.** Everything generic moved to `shared/`: the plane fit,
+   the homography, the lean window, the IK, `plane_travel`, the probe-based height correction, the JSON
+   store. `paint/kinematics.py` is now forty lines that say "the surface is paper, the tool is a brush, and
+   nobody measured the brush". The acceptance test for the move was not the unit tests but recompiling
+   every `paintings/*.plan.json` before and after and diffing the output: byte-identical, including the
+   dry-run variants. Refactors of geometry code need that kind of check, not a green suite.
+2. **Fit what you do not know; fix what you do.** Painting *fits* the brush length because the brush is
+   glued in and nobody measured it. Chess *gives* the gripper's reach, because wrist-axis-to-jaw-centre is
+   a dimension of the arm. Making it a parameter (`tool_len=None` fits, a number fixes) was one line in
+   the plane model, and it changes what the four taught corners are for: with the length fixed they locate
+   and orient the board and nothing else, so a mis-measured jaw offset shows up as a board residual
+   instead of being quietly absorbed into a wrong length. There is a test for exactly that.
+3. **The board's frame is the robot's frame, not chess's.** `u` left-to-right as the robot sees it, `v`
+   from the far edge towards it, and one config word (`robot_side`) says which colour sits in front of the
+   arm. Everything downstream — the reachability report, the warped camera image, the square/cell mapping —
+   is written in that frame, so turning the board round is a config change rather than a re-teach, and no
+   module below the workspace has an opinion about orientation.
+4. **Occupancy is almost always enough to name a move.** A binary "something is there" reading per square,
+   diffed against the position python-chess already knows, identifies the move uniquely in every real game
+   we replayed — because the *origin* square emptying is what disambiguates two knights going to the same
+   square. The only genuine ambiguity is a promotion (queen or knight look identical from above), which is
+   a question about the piece, not the move. That is why the resolver returns a candidate *list* and the
+   routine asks instead of guessing, and why colour is only ever used to *reject* a candidate.
+5. **A pose that is not reachable is not an error, it is a lower height.** The far squares run out of arm
+   before they run out of board: they can be served low but not at carry height. `physical.steps` looks for
+   the highest height each end of a travel can be served at and ramps between them, which also solves the
+   near-rank problem from the other direction (a piece lifted off rank 1 would otherwise be dragged across
+   its neighbours). Only a square with no grasp pose *at all* becomes a human-assisted move.
+6. **Guided teaching turned out to be the interesting part.** The old way — know which dashboard button to
+   press in which order — kept the procedure in someone's head. A session is now a file the daemon reads
+   out (`config/teach/chess_board.json`, 18 steps), each Done writes straight to `config/chess.json`, and
+   a grasp step is post-processed into the two things that generalise: the height above the board and the
+   lean the operator used. The mechanism is not chess-specific and should replace the paint page's corner
+   buttons next.
+7. **Write the game document atomically.** The first headless game stalled because the test's move feeder
+   read `var/games/<id>.json` while the routine was rewriting it and got half a document. The LLM's
+   `chess.sh wait` loop would have hit the same thing on a real game; both files now go through
+   `util.atomic_write`.
+8. **What P0 has to measure**: the jaw-centre offset (`gripper.tool_len_cm`, seeded at L3 = 11 cm), z0 for
+   `config/floor_config.json`, which squares the real joint limits actually reach at grasp/hover/carry, the
+   lean each needs, whether tilted grasps topple neighbours at 3.6 cm pitch, and whether the overhead
+   camera sees the whole board with the arm at rest. The reach table in `drafts/chess-plan.md` is a
+   prediction from a free-fit z0 and is expected to be pessimistic.
+
+### Observability and learning, added the same day
+
+9. **The page must not cost the control loop anything.** The obvious way to show the warped board is an
+   MJPEG stream, which means warping every frame at 30 Hz inside the loop that also talks to the motor
+   bus — more work than the loop itself does. It is served as an on-demand still instead (`/chess/warp.jpg`),
+   and the whole page is one `/chess/state` call. The camera comparison is computed there, at the 1 Hz
+   the page polls, not in the loop.
+10. **The empty-board reference is a separate, deliberate step.** Occupancy is a difference from a
+   picture of the empty board, so that picture has to be taken when the board really is empty — which a
+   routine starting mid-game cannot do for itself. Hence `chess_reference` / the **Capture empty board**
+   button, and a reader shared between the page and the routine so both compare against the same
+   baseline with the same fitted thresholds.
+11. **Copy the pose before you move the arm.** Free-driving loses the pose you were at, and the taught
+   config only holds the points the session asked for. The pose panel exists because the cheapest
+   recovery from "that was nearly right" is a clipboard: it offers the raw JSON and a ready
+   `{"action": "goal", ...}` command, and can save it as a named waypoint.
+12. **A self-tuning rig you cannot audit is worse than one you tune by hand.** The history records every
+   grasp with the evidence (commanded height, lean the IK actually used, settled jaw opening, whether it
+   held) and the aggregate proposes changes — but applying one is a person pressing Apply, the change is
+   logged with its before and after, and the fact that it was applied goes into the history too. Two of
+   the four suggestion kinds have no automatic form at all: *teach this piece* and *re-probe this square*
+   are things only a human can do, and pretending otherwise would hide a geometry problem behind a
+   tuning knob. Four attempts at the same thing is the floor for any conclusion, so one bad grasp moves
+   nothing.
+13. **Keep the game document small and put the telemetry elsewhere.** The LLM reads
+   `var/games/<id>.json` every turn, so it stays a FEN and a move list; each move carries only a compact
+   `exec` block (seconds, steps, points, grips). Everything a human would want for debugging lives in
+   `var/chess_history.jsonl`, which nothing in the loop ever reads back.
