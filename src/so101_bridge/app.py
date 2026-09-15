@@ -6,14 +6,18 @@ the same chain of guards: step cap, soft limits, floor model, load guard, stall 
 """
 
 import json
-from pathlib import Path
 import shutil
 import signal
 import threading
 import time
 import traceback
+from pathlib import Path
 
 from . import dashboard, hardware, paths, vision
+from .chess import kinematics as chess_kin
+from .chess import physical as chess_phys
+from .chess import workspace as chess_ws
+from .chess.log import GameLog
 from .controller import Controller
 from .floor import FLOOR_FREEZE, FLOOR_MARGIN
 from .paint import kinematics as paint_kin
@@ -25,6 +29,7 @@ from .poses import load_rest
 from .settings import (
     ARM,
     CAMS,
+    CHESS_CAM,
     DEFAULT_SPEED,
     JOINTS,
     LOAD_LIMIT,
@@ -38,6 +43,7 @@ from .settings import (
     STATE_EVERY,
     VISION_EVERY,
 )
+from .shared import teach as teach_mod
 from .util import atomic_write, log
 
 
@@ -56,6 +62,96 @@ def main():
         log("shutdown: holding position, torque stays ON. Disconnecting bus/cameras.")
         try: robot.disconnect()
         except Exception as e: log(f"disconnect error: {e}")
+
+
+# ------------------------------------------------------------------------------- chess command surface
+_CHESS_STATE = {"mtime": None, "summary": None}
+
+
+def chess_state():
+    """``/state.chess``: the current game in one small dict, re-read only when the game file changes."""
+    from .paths import GAMES_DIR
+    try:
+        files = sorted(GAMES_DIR.glob("*.json"), key=lambda q: q.stat().st_mtime) if GAMES_DIR.is_dir() else []
+        if not files: return None
+        mtime = files[-1].stat().st_mtime
+        if _CHESS_STATE["mtime"] != mtime:
+            g = GameLog.load(files[-1].stem)
+            _CHESS_STATE.update(mtime=mtime, summary=g.summary() if g else None)
+        return _CHESS_STATE["summary"]
+    except Exception:
+        return _CHESS_STATE["summary"]
+
+
+def chess_command(ctrl, act, c, limits, present):
+    """Every ``chess_*`` file/HTTP command. Teaching and geometry act now; the rest talk to the routine."""
+    def model(d=None):
+        return chess_kin.GripperModel(ctrl.floor, d or chess_ws.load(), limits)
+
+    def ask(**kw):
+        ctrl.chess_request = {**(getattr(ctrl, "chess_request", None) or {}), **kw}
+
+    if act == "chess_board":
+        chess_ws.set_board(size_cm=c.get("size_cm"), robot_side=c.get("robot_side"), cam=c.get("cam"))
+    elif act == "chess_mark":                      # present pose = closed fingertips on a square centre
+        sq = str(c["square"]).lower()
+        (chess_ws.mark_corner if sq in chess_ws.CORNERS else chess_ws.mark_extra)(sq, present)
+    elif act == "chess_clear":
+        chess_ws.clear_board_marks()
+    elif act == "chess_image_corners":
+        chess_ws.set_image_corners({k: tuple(v) for k, v in c["corners"].items()})
+    elif act == "chess_slot":
+        chess_ws.set_slot(str(c["name"]), present)
+    elif act == "chess_compile":                   # fit, report, and record which squares are out of reach
+        d = chess_ws.load(); m = model(d)
+        if not m.ok: log(f"chess: board model not fitted — {m.error}"); return
+        log(f"chess: board model {m.summary()}")
+        log(chess_kin.report_text(m.reachability_report(), d))
+        chess_ws.set_unreachable(chess_phys.unreachable_squares(m, d))
+    elif act == "chess_goto":                      # jaws over a square at a height, through the guards
+        d = chess_ws.load(); m = model(d)
+        z = float(c.get("z", d["heights"]["hover_cm"]))
+        pose = m.pose_for(str(c["square"]).lower(), z) if m.ok else None
+        if pose is None: log(f"chess_goto: {c.get('square')} at z={z} cm is unreachable ({m.error or 'no pose'})")
+        else:
+            far = max(abs(pose[j] - present[j]) for j in pose); n = int(far // 8.0) + 1
+            pts = [{j: present[j] + (pose[j] - present[j]) * k / n for j in pose} for k in range(1, n + 1)]
+            log(f"chess_goto: {c['square']} z={z} cm -> { {k: round(v, 1) for k, v in pose.items()} } in {n} steps")
+            ctrl.request({"action": "path", "points": pts, "speed": float(c.get("speed", 4.0)), "src": "file"})
+    elif act == "chess_reference":                 # capture the EMPTY board: every reading is a diff from it
+        from .chess import vision as chess_vision
+        d = chess_ws.load()
+        with ctrl.lock: frame = ctrl.frame.get(c.get("cam") or d["board"].get("cam") or CHESS_CAM)
+        if frame is None: log("chess: no frame from that camera yet"); return
+        reader = chess_vision.BoardReader(d)
+        if not reader.ok: log(f"chess: {reader.error()}"); return
+        if not reader.set_reference(frame): log("chess: could not warp the board"); return
+        ctrl.chess_reader = reader
+        log("chess: empty-board reference captured — occupancy readings are live from now on")
+    elif act == "chess_apply":                     # apply one suggestion from the history
+        from .chess import history as chess_history
+        try: log(f"chess: {chess_history.apply(c['id'])}")
+        except ValueError as e: log(f"chess: {e}")
+    elif act == "chess_check_view":                # can the camera see the board at all?
+        d = chess_ws.load()
+        with ctrl.lock: frame = ctrl.frame.get(c.get("cam") or d["board"].get("cam") or CHESS_CAM)
+        if frame is None: log("chess: no frame from that camera yet"); return
+        from .chess import vision as chess_vision
+        if chess_vision.homography(d) is not None: log("chess: board located from the taught image corners")
+        else:
+            grid = chess_vision.find_grid(frame)
+            log("chess: found a 7x7 grid — teach the image corners to lock the orientation" if grid is not None
+                else "chess: no board found in the frame (light? whole board in view? empty board?)")
+    elif act == "chess_new":
+        GameLog.new(mode=c.get("mode", "play"), robot=c.get("robot", chess_ws.load()["board"]["robot_side"]),
+                    players=c.get("players"), start_fen=c.get("fen"))
+    elif act == "chess_move": ask(move=str(c.get("move", "")).strip().lower())
+    elif act == "chess_confirm": ask(confirm=True)
+    elif act in ("chess_play", "chess_setup", "chess_puzzle", "chess_verify"):
+        ask(**{k: v for k, v in c.items() if k != "action"})
+        ctrl.start_routine(act)
+    else:
+        log(f"unknown chess action {act}")
 
 
 def control_loop(robot, ctrl: Controller, limits, max_iters=None):
@@ -223,6 +319,12 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     except Exception as e: log(f"paint_probe error: {e}")
                 elif act == "paint_brush":                 # brush parameters, e.g. {"action":"paint_brush","z_offset_cm":1.2}
                     paint_ws.set_brush(**{k: v for k, v in c.items() if k != "action"})
+                elif act.startswith("teach_"):             # guided teaching, see shared/teach.py
+                    try: teach_mod.command(ctrl, act, **{k: v for k, v in c.items() if k != "action"})
+                    except Exception as e: log(f"{act} error: {e}")
+                elif act.startswith("chess_"):
+                    try: chess_command(ctrl, act, c, limits, present)
+                    except Exception as e: log(f"{act} error: {e}")
                 elif act == "video_start": ctrl.video.start(c.get("name", "clip"))
                 elif act == "video_stop": ctrl.video.stop()
                 elif act == "rest": ctrl.go_rest()
@@ -312,6 +414,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     jpeg, b, bgr = vision.render(obs[n], n, mode, ctrl.routine_status,
                                                  show_servo_guides=(n == "wrist" and ctrl.routine_status == "running"))
                     frames[n] = bgr
+                    with ctrl.lock: ctrl.frame[n] = obs[n]      # raw frame: the chess board reader warps this one
                     if b: blobs[n] = b
                     if jpeg:
                         with ctrl.lock: ctrl.jpeg[n] = jpeg
@@ -338,6 +441,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                       "path": {"remaining": len(path_queue), "total": path_total} if (path_queue or mode == "moving") and path_total else None,
                       "auto": ctrl.routine_status,
                       "progress": {k: ctrl.progress.get(k) for k in ("routine", "phase", "detail", "paint")},
+                      "teach": ctrl.teach.state() if ctrl.teach else None, "chess": chess_state(),
                       "video": ctrl.video.status()}
                 with ctrl.lock: ctrl.state = st
                 atomic_write(STATE_FILE, json.dumps(st, indent=1).encode()); last_state = now

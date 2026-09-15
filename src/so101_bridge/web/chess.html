@@ -1,0 +1,530 @@
+<!doctype html>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>SO-101 bridge — chess</title>
+<style>
+
+:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c222b;--line:#2a313c;--ink:#e6edf3;--dim:#8b949e;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--accent:#58a6ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
+h1{font-size:15px;margin:0;font-weight:600}h2{font-size:11px;margin:0 0 10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+h3{font-size:12px;margin:12px 0 6px;color:var(--ink)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;z-index:20;background:rgba(13,17,23,.93);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:10px 16px}
+.hrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.chip{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:12px}
+.chip .k{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.8px}.chip b{font-family:ui-monospace,Menlo,monospace}
+#banner{display:none;margin:10px 0 0;background:var(--bad);color:#fff;font-weight:700;padding:10px 14px;border-radius:8px;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.55}}
+.bar{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+button{font:600 13px/1 ui-sans-serif,system-ui;padding:9px 13px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:var(--panel2);cursor:pointer}
+button:hover{filter:brightness(1.25)}button.sm{padding:5px 8px;font-size:12px;font-weight:500}button:disabled{opacity:.4;cursor:not-allowed}
+#stop{background:var(--bad);border-color:#ff6a60;color:#fff;font-size:16px;padding:12px 26px}#resume{background:#1a4d2e}#abort{background:#4a2a63}
+#release{background:#6b3410}#engage{background:#0f4d4a}.primary{background:#0d3a66;border-color:#1f6feb}
+main{padding:14px 16px 28px;display:grid;gap:14px;grid-template-columns:repeat(12,1fr)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.span12{grid-column:span 12}.span6{grid-column:span 6}.span4{grid-column:span 4}.span8{grid-column:span 8}
+@media(max-width:1100px){.span8,.span6,.span4{grid-column:span 12}}
+input,select{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 8px;font:12px ui-monospace,Menlo,monospace}
+input[type=number]{width:74px}input[type=color]{padding:0;width:34px;height:28px}
+table{border-collapse:collapse;width:100%}td,th{padding:5px 6px;border-top:1px solid var(--line);font-size:12px;text-align:left}th{color:var(--dim);font-weight:500;border-top:0}
+.small{color:var(--dim);font-size:11px}.ok{color:var(--ok)}.no{color:var(--bad)}.warn{color:var(--warn)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:12px}.kv span:first-child{color:var(--dim)}
+canvas{width:100%;display:block;background:#0b0f14;border:1px solid var(--line);border-radius:8px}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;margin-right:6px;border:1px solid #0008}
+.prog{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden;margin:6px 0}.prog i{display:block;height:100%;background:var(--accent)}
+.steps{display:flex;gap:6px;flex-wrap:wrap}.step{padding:4px 8px;border-radius:6px;border:1px solid var(--line);font-size:11px;color:var(--dim)}
+.step.now{border-color:var(--accent);color:var(--ink);background:#0d3a66}.step.done{border-color:#2ea043;color:#9be9a8}
+a{color:var(--accent)}kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10px}
+img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-rendering:pixelated;background:#fff}
+.cams{display:grid;gap:10px;grid-template-columns:1fr 1fr}@media(max-width:760px){.cams{grid-template-columns:1fr}}
+.cam{position:relative;background:#000;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.cam img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}
+.cam .tag{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.62);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim)}
+.grid8{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;max-width:420px}
+.sq{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:4px;font-size:10px;border:1px solid var(--line);background:var(--panel2);cursor:pointer}
+.sq b{font-size:11px}.sq.no{background:#3d1417;border-color:#7d2b30;color:#ffb3b0}
+.sq.easy{background:#10331f;border-color:#2b6b41}.sq.hard{background:#3a2f10;border-color:#7d6a22}
+.sq.taught{outline:2px solid var(--accent)}
+.rowflex{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#prompt{font-size:14px;line-height:1.5;background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:12px 14px;margin:8px 0}
+.pill{display:inline-block;padding:2px 7px;border-radius:999px;border:1px solid var(--line);font-size:10px;color:var(--dim);margin:2px 3px 2px 0}
+.pill.done{border-color:#2ea043;color:#9be9a8}.pill.skip{border-color:#7d6a22;color:#e3c56b}
+#need{display:none;background:#3a2410;border:1px solid var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.board{display:grid;grid-template-columns:repeat(8,1fr);gap:0;max-width:400px;border:2px solid var(--line);border-radius:6px;overflow:hidden}
+.bsq{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:26px;line-height:1;position:relative}
+.bsq.light{background:#3b4250}.bsq.dark{background:#232935}
+.bsq.last{box-shadow:inset 0 0 0 3px var(--accent)}
+.bsq .nm{position:absolute;left:2px;top:1px;font-size:8px;color:#ffffff55;font-family:ui-monospace,Menlo,monospace}
+.bsq .w{color:#f6f8fa;text-shadow:0 0 2px #000,0 1px 2px #000}
+.bsq .b{color:#15191f;text-shadow:0 0 2px #fff8,0 1px 2px #0008}
+.cam8{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;max-width:400px}
+.csq{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:3px;font-size:9px;border:1px solid var(--line);background:var(--panel2);font-family:ui-monospace,Menlo,monospace}
+.csq.on{background:#10331f;border-color:#2b6b41}.csq.off{background:#181d25}
+.csq.bad{background:#3d1417;border-color:#f85149;color:#ffb3b0}
+.bars{display:flex;flex-direction:column;gap:5px}
+.barrow{display:grid;grid-template-columns:78px 1fr 62px;gap:8px;align-items:center;font-size:11px}
+.bartrack{height:12px;background:var(--panel2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.bartrack i{display:block;height:100%;background:var(--ok)}
+.bartrack i.warn{background:var(--warn)}.bartrack i.bad{background:var(--bad)}
+.sug{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:9px 11px;margin-bottom:7px;background:var(--panel2)}
+.sug.advice{border-left-color:var(--warn)}
+.sug .w{font-weight:600}.sug .y{color:var(--dim);font-size:11px;margin-top:3px}
+pre.pose{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin:6px 0;
+  font-family:ui-monospace,Menlo,monospace;font-size:11px;white-space:pre-wrap;user-select:all;cursor:text}
+.copied{color:var(--ok)}
+</style>
+
+<header>
+  <div class=hrow>
+    <h1>SO-101 — chess <span class=small>· <a href="/">control dashboard</a> · <a href="/paint">painting</a></span></h1>
+    <div class=chips>
+      <div class=chip><span class=k>mode</span><b id=c_mode>—</b></div>
+      <div class=chip><span class=k>torque</span><b id=c_torque>—</b></div>
+      <div class=chip><span class=k>routine</span><b id=c_auto>idle</b></div>
+      <div class=chip><span class=k>jaws over</span><b id=c_sq>—</b></div>
+      <div class=chip><span class=k>board</span><b id=c_board>—</b></div>
+    </div>
+  </div>
+  <div id=banner>ESTOP ACTIVE — all commands ignored — press RESUME</div>
+  <div class=bar>
+    <button id=stop onclick="c('stop')">STOP</button><button id=resume onclick="c('resume')">RESUME</button>
+    <button onclick="c('hold')">HOLD</button><button id=abort onclick="c('abort')">ABORT</button>
+    <button onclick="c('rest')">GO TO REST</button>
+    <button id=release onclick="if(confirm('Torque OFF (free-drive). Hold the arm — it sags under gravity. Continue?'))c('release')">FREE-DRIVE (torque off)</button>
+    <button id=engage onclick="c('engage')">ENGAGE</button>
+  </div>
+</header>
+
+<main>
+  <!-- ---------------------------------------------------------------- teaching -->
+  <section class="card span6">
+    <h2>Guided teaching</h2>
+    <div class=rowflex>
+      <select id=session></select>
+      <button class=primary onclick="cmd({action:'teach_start',session:sel('session')})">Start session</button>
+      <button class=sm onclick="cmd({action:'teach_free'})">Free-drive</button>
+      <button class=sm onclick="cmd({action:'teach_engage'})">Engage</button>
+      <button class=sm onclick="cmd({action:'teach_abort'})">Abort</button>
+    </div>
+    <div id=prompt class=small>No teaching session running. Pick one and press Start — the daemon will tell you where to put the arm, one point at a time.</div>
+    <div class=rowflex>
+      <button class=primary id=b_done onclick="cmd({action:'teach_done'})" disabled>DONE — record this point</button>
+      <button class=sm onclick="cmd({action:'teach_skip'})">Skip</button>
+      <button class=sm onclick="cmd({action:'teach_back'})">Back</button>
+      <input id=fixid placeholder="step id" style="width:90px">
+      <button class=sm onclick="cmd({action:'teach_fix',step:val('fixid')})">Re-record</button>
+    </div>
+    <div class=prog><i id=t_bar style="width:0"></i></div>
+    <div id=t_steps></div>
+    <p class=small id=t_msg></p>
+  </section>
+
+  <!-- ---------------------------------------------------------------- board model -->
+  <section class="card span6">
+    <h2>Board</h2>
+    <div class=rowflex>
+      <label class=small>size <input id=size type=number step=0.1 value=29></label>
+      <label class=small>robot plays
+        <select id=side><option value=white>white (near rank 1)</option><option value=black>black (near rank 8)</option></select></label>
+      <label class=small>camera <input id=cam style="width:60px" value=top></label>
+      <button class=sm onclick="cmd({action:'chess_board',size_cm:+val('size'),robot_side:sel('side'),cam:val('cam')})">Save</button>
+    </div>
+    <div class=rowflex style="margin-top:8px">
+      <span class=small>mark present pose as the centre of</span>
+      <input id=marksq value=a1 style="width:55px">
+      <button class=sm onclick="cmd({action:'chess_mark',square:val('marksq')})">Mark square</button>
+      <input id=slotname value=handover style="width:110px">
+      <button class=sm onclick="cmd({action:'chess_slot',name:val('slotname')})">Mark slot</button>
+    </div>
+    <div class=rowflex style="margin-top:8px">
+      <button class=primary onclick="cmd({action:'chess_compile'})">Fit + reachability report</button>
+      <button class=sm onclick="cmd({action:'routine',name:'chess_verify'})">Verify on the arm</button>
+      <button class=sm onclick="if(confirm('Forget every taught corner, extra contact and probe?'))cmd({action:'chess_clear'})">Clear marks</button>
+      <button class=sm onclick="cmd({action:'chess_check_view'})">Can the camera see it?</button>
+    </div>
+    <div id=model class=small style="margin-top:8px"></div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- reachability -->
+  <section class="card span6">
+    <h2>Reachability — lean in degrees at <select id=zsel class=sm></select></h2>
+    <div class=grid8 id=grid></div>
+    <p class=small>Click a square to send the jaws there at
+      <input id=gotoz type=number step=0.5 value=6 style="width:60px"> cm above the board.
+      Red = no pose inside the joint limits. Outlined = taught.</p>
+  </section>
+
+  <!-- ---------------------------------------------------------------- camera -->
+  <section class="card span6">
+    <h2>Overhead view</h2>
+    <div class=cam><img id=camimg src="/chess/top.mjpg"><div class=tag id=camtag>top</div></div>
+    <p class=small>Click the centre of <b id=pickname>a1</b> to teach the image corners (a1 → h1 → h8 → a8).
+      <button class=sm onclick="picking=[];pickAt=0;draw()">Restart picking</button>
+      <span id=pickstate></span></p>
+  </section>
+
+  <!-- ---------------------------------------------------------------- position -->
+  <section class="card span6">
+    <h2>Position <span class=small id=b_turn></span></h2>
+    <div class=board id=boardview></div>
+    <p class=small>Drawn from the FEN, in the robot's own view — its own back rank is the bottom row.
+      The last move is outlined.</p>
+  </section>
+
+  <!-- ---------------------------------------------------------------- what the camera sees -->
+  <section class="card span6">
+    <h2>Camera reading <span class=small id=cam_state></span></h2>
+    <div id=cam_why class=small></div>
+    <div class=cam8 id=camgrid></div>
+    <p class=small>Green = the camera sees a piece, dark = empty, red = it disagrees with the position above.
+      <button class=sm onclick="cmd({action:'chess_reference'})">Capture empty board</button>
+      <span id=cam_thr></span></p>
+    <img id=warp class=prev style="margin-top:8px;max-width:400px" alt="warped board">
+  </section>
+
+  <!-- ---------------------------------------------------------------- arm side view -->
+  <section class="card span6">
+    <h2>Arm and board, side view</h2>
+    <canvas id=side height=280></canvas>
+    <p class=small>To scale, as the floor model sees it. Dashed lines: the taught board plane and the
+      grasp / hover / carry heights above it.</p>
+  </section>
+
+  <!-- ---------------------------------------------------------------- present pose -->
+  <section class="card span6">
+    <h2>Present pose</h2>
+    <pre class=pose id=posejson>—</pre>
+    <div class=rowflex>
+      <button class=sm onclick="copyPose()">Copy JSON</button>
+      <button class=sm onclick="copyGoal()">Copy as a goal command</button>
+      <input id=wpname placeholder="waypoint name" style="width:130px">
+      <button class=sm onclick="c('wp_save','&name='+encodeURIComponent(val('wpname')))">Save as waypoint</button>
+      <span id=copied class=small></span>
+    </div>
+    <p class=small>The live joint pose, in degrees. Copy it before you move the arm and you can always
+      send it back: paste the goal form into <span class=mono>var/cmd/&lt;n&gt;.json</span>.</p>
+  </section>
+
+  <!-- ---------------------------------------------------------------- learning -->
+  <section class="card span6">
+    <h2>What the history has learned <span class=small id=h_totals></span></h2>
+    <h3>Grasp success by piece</h3>
+    <div class=bars id=h_pieces></div>
+    <h3>Squares that went wrong</h3>
+    <div class=grid8 id=h_squares></div>
+    <p class=small>Every grasp, place and verification is appended to
+      <span class=mono>var/chess_history.jsonl</span>. Nothing here changes the arm's behaviour on its own.</p>
+  </section>
+
+  <section class="card span6">
+    <h2>Suggestions</h2>
+    <div id=sugs></div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- game -->
+  <section class="card span12">
+    <h2>Game</h2>
+    <div id=need></div>
+    <div class=rowflex>
+      <label class=small>white <select id=pw><option>human</option><option>llm</option><option>engine</option></select></label>
+      <label class=small>black <select id=pb><option>llm</option><option>human</option><option>engine</option></select></label>
+      <button class=sm onclick="cmd({action:'chess_new',players:{white:sel('pw'),black:sel('pb')}})">New game</button>
+      <button class=primary onclick="cmd({action:'chess_play'})">PLAY</button>
+      <button class=sm onclick="cmd({action:'chess_setup'})">Set the board up</button>
+      <input id=mv placeholder="e2e4" style="width:80px">
+      <button class=sm onclick="cmd({action:'chess_move',move:val('mv')})">Send move</button>
+      <button class=sm onclick="cmd({action:'chess_confirm'})">Confirm</button>
+    </div>
+    <div id=game class=small style="margin-top:8px"></div>
+    <table id=movetab><thead><tr><th>ply</th><th>by</th><th>move</th><th>played by</th><th>verify</th>
+      <th>time</th><th>arm</th></tr></thead><tbody id=moves></tbody></table>
+    <pre id=pgn class="mono small" style="white-space:pre-wrap"></pre>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const val = id => $(id).value.trim();
+const sel = id => $(id).value;
+let S = {}, picking = [], pickAt = 0;
+const PICK = ["a1", "h1", "h8", "a8"];
+
+function c(a, q = "") { fetch(`/cmd?a=${a}${q}`); }
+function cmd(obj) { fetch("/chess/cmd", {method: "POST", body: JSON.stringify(obj)}).then(load); }
+
+async function load() {
+  try { S = await (await fetch("/chess/state")).json(); } catch (e) { return; }
+  draw();
+}
+
+function draw() {
+  const st = S.arm || {}, ws = S.workspace || {}, b = (ws.board || {});
+  $("c_mode").textContent = st.mode || "—";
+  $("c_torque").textContent = st.torque_on === false ? "OFF" : "on";
+  $("c_auto").textContent = S.auto || "idle";
+  $("c_sq").textContent = S.jaws ? `${S.jaws[0] || "off board"} @ ${S.jaws[1]} cm` : "—";
+  $("banner").style.display = st.estop ? "block" : "none";
+  const status = S.status || {};
+  $("c_board").textContent = status.ready ? "taught" : `${(status.board || {}).corners || []}`.length ? "partial" : "not taught";
+
+  // board card
+  if (document.activeElement !== $("size")) $("size").value = b.size_cm ?? 29;
+  if (document.activeElement !== $("side")) $("side").value = b.robot_side || "white";
+  if (document.activeElement !== $("cam")) $("cam").value = b.cam || "top";
+  const m = S.model || {};
+  $("model").innerHTML = m.ok
+    ? `<span class=ok>fitted</span> · ${m.contacts} contacts · residual ${m.xy_rms_cm} cm rms (worst ${m.xy_max_cm}) ·
+       gripper ${m.gripper_len_cm} cm · board plane ${m.board_z_cm} cm · flatness ${m.flatness_mm} mm
+       ${(m.warnings || []).map(w => `<div class=warn>⚠ ${w}</div>`).join("")}`
+    : `<span class=no>not fitted</span> — ${m.error || "teach the four corners"}`;
+  $("camtag").textContent = b.cam || "top";
+  $("camimg").src = `/chess/${b.cam || "top"}.mjpg`;
+
+  // reachability
+  const rep = S.reach || {};
+  const zsel = $("zsel");
+  if (rep.heights && zsel.options.length !== Object.keys(rep.heights).length) {
+    zsel.innerHTML = Object.entries(rep.heights).map(([k, v]) => `<option value="${k}">${k} — ${v} cm</option>`).join("");
+  }
+  const label = zsel.value || "hover";
+  const taught = new Set([...Object.keys((b.corners || {})), ...((b.extra || []).map(e => e.square))]);
+  $("grid").innerHTML = (S.squares || []).map(n => {
+    const lean = ((rep.squares || {})[n] || {})[label];
+    const cls = lean === null || lean === undefined ? "no" : (lean <= 25 ? "easy" : "hard");
+    return `<div class="sq ${cls} ${taught.has(n) ? "taught" : ""}" onclick="goto('${n}')"><b>${n}</b>${lean == null ? "—" : lean + "°"}</div>`;
+  }).join("");
+
+  // teaching
+  const t = S.teach;
+  const sessions = S.sessions || [];
+  if ($("session").options.length !== sessions.length)
+    $("session").innerHTML = sessions.map(s => `<option value="${s.name}">${s.label || s.name}</option>`).join("");
+  $("b_done").disabled = !t || t.finished;
+  if (t) {
+    $("prompt").innerHTML = t.finished ? `<b>${t.message || "session complete"}</b>`
+      : `<b>${t.step}/${t.steps} · ${t.id}</b><br>${t.prompt}`;
+    $("t_bar").style.width = `${100 * t.step / t.steps}%`;
+    $("t_steps").innerHTML = (Object.keys(t.recorded || {})).map(k => `<span class="pill done">${k}</span>`).join("")
+      + (t.skipped || []).map(k => `<span class="pill skip">${k} skipped</span>`).join("");
+    $("t_msg").textContent = t.message || "";
+  }
+
+  // game
+  const g = S.game;
+  $("game").innerHTML = g ? `<b>${g.id}</b> · ${g.mode} · robot plays ${g.robot} ·
+     ${g.players.white} vs ${g.players.black} · <b>${g.turn}</b> to move · phase ${g.phase}
+     ${g.waiting_for ? `· waiting for <b>${g.waiting_for}</b>` : ""}
+     ${g.result ? `· <b>${g.result.reason} ${g.result.score}</b>` : ""}
+     <br><span class=mono>${g.fen}</span>`
+    : "no game yet";
+  const need = g && g.needs;
+  $("need").style.display = need ? "block" : "none";
+  if (need) $("need").innerHTML = `<b>needs: ${need.kind}</b> — ${need.hint || ""}
+      <div class=mono>${JSON.stringify(need)}</div>`;
+  $("pgn").textContent = S.pgn || "";
+
+  $("pickname").textContent = PICK[pickAt] || "done";
+  $("pickstate").textContent = picking.length ? `${picking.length}/4 picked` : "";
+
+  drawBoard();
+  drawCamera();
+  drawSide();
+  drawPose();
+  drawLearning();
+  drawSuggestions();
+  drawMoves();
+}
+
+/* ---------- the position, in the robot's own view ---------- */
+function drawBoard() {
+  const b = S.board;
+  if (!b) { $("boardview").innerHTML = ""; return; }
+  const last = ((S.game || {}).last_move || {}).uci || "";
+  const lastSquares = [last.slice(0, 2), last.slice(2, 4)];
+  $("b_turn").textContent = `· ${b.turn} to move${b.check ? " · check" : ""}`;
+  $("boardview").innerHTML = b.squares.map(sq => {
+    const mark = lastSquares.includes(sq.name) ? " last" : "";
+    const glyph = sq.glyph ? `<span class="${sq.colour === "white" ? "w" : "b"}">${sq.glyph}</span>` : "";
+    return `<div class="bsq ${sq.light ? "light" : "dark"}${mark}"><span class=nm>${sq.name}</span>${glyph}</div>`;
+  }).join("");
+}
+
+/* ---------- what the camera sees, against what should be there ---------- */
+function drawCamera() {
+  const cam = S.camera || {};
+  $("cam_why").textContent = cam.ok ? "" : (cam.why || "");
+  $("cam_state").textContent = cam.ok ? (cam.stable ? "· settled" : "· still moving") : "· not reading";
+  $("cam_thr").textContent = cam.ok
+    ? `threshold ${cam.threshold ?? "default"}${cam.mismatch.length ? ` · disagrees on ${cam.mismatch.join(" ")}` : " · agrees on all 64"}`
+    : "";
+  $("camgrid").innerHTML = !cam.ok ? "" : cam.cells.map(cell => {
+    const cls = !cell.agree ? "bad" : (cell.seen ? "on" : "off");
+    return `<div class="csq ${cls}" title="${cell.name}: diff ${cell.diff}${cell.colour ? ", " + cell.colour : ""}">` +
+           `${cell.name}<br>${cell.seen ? (cell.colour === "black" ? "\u25cf" : "\u25cb") : ""}</div>`;
+  }).join("");
+  if (cam.ok) $("warp").src = "/chess/warp.jpg?t=" + Date.now();
+}
+
+/* ---------- side view: the arm, the board plane and the working heights (metres -> cm) ---------- */
+function drawSide() {
+  const cv = $("side"), sv = S.side || {};
+  const w = cv.clientWidth, h = 280, dpr = devicePixelRatio || 1;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, w, h);
+  if (!sv.arm) {
+    x.fillStyle = "#8b949e"; x.font = "12px ui-sans-serif";
+    x.fillText(sv.fitted ? "waiting for a pose…" : "floor model not fitted — mark 4 table contacts", 10, h / 2);
+    return;
+  }
+  const pts = sv.arm.map(p => [p[0] * 100, p[1] * 100]);
+  const board = sv.board_cm ?? sv.board_z_cm;
+  const rs = pts.map(p => p[0]), zs = pts.map(p => p[1]);
+  const rMin = Math.min(-4, ...rs) - 2, rMax = Math.max(4, ...rs) + 2;
+  const zMin = Math.min(-3, board ?? 0), zMax = Math.max(12, ...zs) + 3;
+  const s = Math.min((w - 90) / (rMax - rMin), (h - 22) / (zMax - zMin));
+  const ox = (w - 90 - (rMax - rMin) * s) / 2 + 8;
+  const X = r => (r - rMin) * s + ox, Y = z => h - 12 - (z - zMin) * s;
+  x.fillStyle = "#1c222b"; x.fillRect(0, Y(0), w, h - Y(0));
+  x.strokeStyle = "#8b949e"; x.lineWidth = 1.5;
+  x.beginPath(); x.moveTo(0, Y(0)); x.lineTo(w, Y(0)); x.stroke();
+  const band = (z, col, label, dy) => {
+    x.strokeStyle = col; x.setLineDash([4, 3]); x.lineWidth = 1;
+    x.beginPath(); x.moveTo(0, Y(z)); x.lineTo(w - 34, Y(z)); x.stroke(); x.setLineDash([]);
+    x.fillStyle = col; x.font = "10px ui-monospace"; x.fillText(label, 4, Y(z) + dy);
+  };
+  band(sv.margin_cm ?? 0.8, "#f85149", "guard " + (sv.margin_cm ?? 0.8).toFixed(1) + " cm", 11);
+  if (board != null) {
+    band(board, "#58a6ff", "board " + board.toFixed(1) + " cm", -4);
+    const hh = sv.heights || {};
+    [["grasp", hh.grasp_default_cm, "#3fb950"], ["hover", hh.hover_cm, "#d29922"], ["carry", hh.carry_cm, "#ff7b9c"]]
+      .forEach(([n, v, col]) => { if (v != null) band(board + v, col, `${n} ${v} cm`, -4); });
+  }
+  x.font = "9px ui-monospace";
+  for (let z = 0; z <= zMax; z += 5) {
+    x.strokeStyle = "#232a34"; x.beginPath(); x.moveTo(w - 34, Y(z)); x.lineTo(w - 30, Y(z)); x.stroke();
+    x.fillStyle = "#8b949e"; x.fillText(z + " cm", w - 28, Y(z) + 3);
+  }
+  x.lineCap = "round"; x.lineJoin = "round";
+  const cols = ["#3fb950", "#d29922", "#ff7b9c"];
+  for (let i = 0; i < pts.length - 1; i++) {
+    x.strokeStyle = cols[i]; x.lineWidth = 6;
+    x.beginPath(); x.moveTo(X(pts[i][0]), Y(pts[i][1])); x.lineTo(X(pts[i + 1][0]), Y(pts[i + 1][1])); x.stroke();
+  }
+  pts.forEach((p, i) => {
+    x.fillStyle = i === pts.length - 1 ? "#fff" : "#0d1117"; x.strokeStyle = "#e6edf3"; x.lineWidth = 2;
+    x.beginPath(); x.arc(X(p[0]), Y(p[1]), i === pts.length - 1 ? 5 : 4, 0, 7); x.fill(); x.stroke();
+  });
+  const tip = pts[pts.length - 1];
+  x.fillStyle = "#e6edf3"; x.font = "600 12px ui-monospace";
+  x.fillText(tip[1].toFixed(1) + " cm", X(tip[0]) + 9, Y(tip[1]) - 7);
+  x.fillStyle = "#8b949e"; x.font = "10px ui-monospace";
+  x.fillText("shoulder", X(pts[0][0]) + 8, Y(pts[0][1]) + 4);
+  x.fillText("reach \u2192  (side view, to scale)", 8, 12);
+}
+
+/* ---------- present pose, copyable ---------- */
+function drawPose() {
+  const p = (S.arm || {}).present;
+  $("posejson").textContent = p ? JSON.stringify(p, null, 1) : "—";
+}
+
+function say(msg) {
+  $("copied").textContent = msg; $("copied").className = "small copied";
+  setTimeout(() => { $("copied").textContent = ""; }, 2500);
+}
+
+function clip(text, msg) {
+  navigator.clipboard.writeText(text)
+    .then(() => say(msg))
+    .catch(() => say("could not reach the clipboard — the text is selectable above"));
+}
+
+function copyPose() {
+  const p = (S.arm || {}).present;
+  if (!p) return say("no pose yet");
+  clip(JSON.stringify(p, null, 1), "pose copied");
+}
+
+function copyGoal() {
+  const p = (S.arm || {}).present;
+  if (!p) return say("no pose yet");
+  const goal = {}; Object.keys(p).forEach(j => { if (j !== "gripper") goal[j] = p[j]; });
+  clip(JSON.stringify({action: "goal", goal, speed: 4.0, src: "file"}), "goal command copied");
+}
+
+/* ---------- learning ---------- */
+function drawLearning() {
+  const h = S.history || {}, t = h.totals || {};
+  $("h_totals").textContent = t.rows
+    ? `· ${t.games} games, ${t.moves} moves, ${t.grasps} grasps` +
+      (t.grasp_success_pct != null ? `, ${t.grasp_success_pct}% held` : "")
+    : "· nothing recorded yet";
+  const pieces = Object.entries(h.pieces || {}).sort((a, b) => b[1].grasps - a[1].grasps);
+  $("h_pieces").innerHTML = pieces.length ? pieces.map(([k, p]) => {
+    const pct = p.grasps ? Math.round(100 * (p.grasps - p.misses) / p.grasps) : 0;
+    const cls = pct >= 90 ? "" : (pct >= 70 ? "warn" : "bad");
+    return `<div class=barrow><span>${p.name}</span>
+      <span class=bartrack><i class="${cls}" style="width:${pct}%"></i></span>
+      <span class=mono>${pct}% (${p.grasps - p.misses}/${p.grasps})</span></div>`;
+  }).join("") : "<span class=small>no grasps recorded yet</span>";
+
+  const sq = h.squares || {};
+  $("h_squares").innerHTML = (S.squares || []).map(n => {
+    const row = sq[n];
+    const bad = row ? row.verify_fail + row.misses : 0;
+    const cls = !row ? "" : (bad ? "no" : "easy");
+    const title = row ? `${row.attempts} attempts, ${row.misses} missed, ${row.verify_fail} verify failures` : "never used";
+    return `<div class="sq ${cls}" title="${title}"><b>${n}</b>${row ? (bad ? bad + " bad" : row.attempts) : ""}</div>`;
+  }).join("");
+}
+
+function drawSuggestions() {
+  const list = S.suggestions || [];
+  $("sugs").innerHTML = list.length ? list.map(x => `
+    <div class="sug ${x.path ? "" : "advice"}">
+      <div class=w>${x.what}</div>
+      <div class=y>${x.why}</div>
+      ${x.path ? `<div class=y><span class=mono>${x.path}</span>: ${x.current} \u2192 <b>${x.value}</b></div>
+         <button class=sm onclick="applySug('${x.id}')">Apply</button>` : `<div class=y>needs a person — no automatic change</div>`}
+    </div>`).join("")
+    : "<span class=small>Nothing to suggest yet. Suggestions appear once there is enough evidence — at least four attempts at the same thing.</span>";
+}
+
+function applySug(id) {
+  if (!confirm("Write this change to config/chess.json?")) return;
+  cmd({action: "chess_apply", id});
+}
+
+/* ---------- move list ---------- */
+function drawMoves() {
+  const moves = S.moves || [];
+  $("moves").innerHTML = moves.slice().reverse().map(m => {
+    const v = m.verify || "";
+    const cls = v === "ok" ? "ok" : (v && v !== "assumed" && v !== "unchecked" ? "no" : "small");
+    const ex = m.exec ? `${m.exec.seconds}s, ${m.exec.steps} steps` : "";
+    return `<tr><td class=mono>${m.ply}</td><td>${m.by}</td><td class=mono><b>${m.san}</b> ${m.uci}</td>
+      <td>${m.executed_by || ""}</td><td class="${cls}">${v}</td><td class=small>${m.time || ""}</td>
+      <td class=small>${ex}</td></tr>`;
+  }).join("");
+}
+
+function goto(sq) { cmd({action: "chess_goto", square: sq, z: +val("gotoz")}); }
+
+$("camimg").addEventListener("click", ev => {
+  if (pickAt >= PICK.length) return;
+  const r = ev.target.getBoundingClientRect();
+  const nat = [ev.target.naturalWidth || r.width, ev.target.naturalHeight || r.height];
+  picking.push([(ev.clientX - r.left) / r.width * nat[0], (ev.clientY - r.top) / r.height * nat[1]]);
+  pickAt++;
+  if (pickAt === PICK.length) {
+    const corners = {}; PICK.forEach((n, i) => corners[n] = picking[i]);
+    cmd({action: "chess_image_corners", corners});
+    picking = []; pickAt = 0;
+  }
+  draw();
+});
+
+$("zsel").addEventListener("change", draw);
+load(); setInterval(load, 1000);
+</script>

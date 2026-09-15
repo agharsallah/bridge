@@ -13,6 +13,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import routines
+from .chess import history as chess_history
+from .chess import kinematics as chess_kin
+from .chess import vision as chess_vision
+from .chess import workspace as chess_ws
+from .chess.log import GameLog
 from .controller import Controller
 from .floor import FLOOR_MARGIN, GRASP_Z
 from .paint import kinematics as paint_kin
@@ -21,11 +26,13 @@ from .paint import program as paint_program
 from .paint import workspace as paint_ws
 from .paths import ESTOP, LOG_FILE
 from .settings import HTTP_PORT, JOINTS
+from .shared import teach as teach_mod
 from .util import log
 from .video import VIDEO_DIR, VideoRecorder
 
 PAGE = (Path(__file__).parent / "web" / "dashboard.html").read_bytes()
 PAINT_PAGE = (Path(__file__).parent / "web" / "paint.html").read_bytes()
+CHESS_PAGE = (Path(__file__).parent / "web" / "chess.html").read_bytes()
 
 
 def _json(handler, obj, status=200):
@@ -117,6 +124,167 @@ def paint_plan(ctrl, q, body):
 
 
 
+# ------------------------------------------------------------------------------- chess page
+def chess_state(ctrl):
+    """Everything the /chess page needs: taught workspace, fitted model, reachability, teaching, game,
+    the live camera reading, the arm as the floor model sees it, and what the history has learned."""
+    st, _ = ctrl.snapshot()
+    d = chess_ws.load()
+    model = chess_kin.GripperModel(ctrl.floor, d, st.get("limits") or {})
+    out = {"workspace": d, "status": chess_ws.status(d), "model": model.summary(),
+           "squares": chess_ws.squares(d), "sessions": teach_mod.sessions(),
+           "auto": ctrl.routine_status, "games": GameLog.catalog(),
+           "arm": {k: st.get(k) for k in ("mode", "torque_on", "estop", "present", "time")}}
+    with ctrl.lock:
+        out["teach"] = ctrl.teach.state() if ctrl.teach else None
+    out["reach"] = model.reachability_report() if model.ok else {}
+    if model.ok and st.get("present"):
+        try: out["jaws"] = list(model.pose_square(st["present"]))
+        except Exception: pass
+    # the arm as a side view, plus where the board plane and the working heights sit on it
+    out["side"] = {"arm": ctrl.floor.arm_points(st["present"]) if st.get("present") else None,
+                   "fitted": ctrl.floor.params is not None,
+                   "margin_cm": FLOOR_MARGIN * 100,
+                   "board_z_cm": round(model.z_plane * 100, 1) if model.ok else None,
+                   "heights": d["heights"] if model.ok else {}}
+    g = GameLog.latest()
+    if g:
+        out["game"] = g.summary(); out["pgn"] = g.doc.get("pgn")
+        out["moves"] = [{k: m.get(k) for k in ("ply", "by", "uci", "san", "executed_by", "verify", "time", "exec")}
+                        for m in g.doc.get("moves", [])]
+        out["board"] = chess_board_view(d, g.doc["fen"])
+        out["camera"] = chess_camera_view(ctrl, d, g.doc["fen"])
+    else:
+        out["board"] = chess_board_view(d, None)
+        out["camera"] = chess_camera_view(ctrl, d, None)
+    stats = chess_history.stats(d=d)
+    out["history"] = stats
+    out["suggestions"] = chess_history.suggestions(stats, d)
+    return out
+
+
+PIECE_GLYPHS = {"K": "\u2654", "Q": "\u2655", "R": "\u2656", "B": "\u2657", "N": "\u2658", "P": "\u2659",
+                "k": "\u265a", "q": "\u265b", "r": "\u265c", "b": "\u265d", "n": "\u265e", "p": "\u265f"}
+
+
+def chess_board_view(d, fen):
+    """The position as the page draws it: one entry per square, in the robot's own viewing order.
+
+    ``{"squares": [{"name", "glyph", "colour", "piece", "light"}...], "turn", "last"}`` — the page does
+    no chess and no orientation arithmetic, it just lays 64 cells out in the order given."""
+    import chess
+    board = chess.Board(fen) if fen else chess.Board()
+    out = []
+    for name in chess_ws.squares(d):
+        sq = chess.parse_square(name)
+        p = board.piece_at(sq)
+        f, r = chess_ws.parse_square(name)
+        out.append({"name": name, "piece": p.symbol() if p else None,
+                    "glyph": PIECE_GLYPHS.get(p.symbol()) if p else None,
+                    "colour": (None if p is None else ("white" if p.color else "black")),
+                    "light": (f + r) % 2 == 1})
+    return {"squares": out, "turn": "white" if board.turn else "black",
+            "check": board.is_check(), "fen": board.fen()}
+
+
+def chess_camera_view(ctrl, d, fen):
+    """What the camera says right now, against what the rules say should be there.
+
+    ``None`` until the image corners are taught and an empty-board reference has been captured — the
+    page says which of the two is missing rather than showing an empty grid."""
+    reader = getattr(ctrl, "chess_reader", None)
+    if reader is None or not reader.ok:
+        return {"ok": False, "why": "the board's image corners have not been taught — click them on the view above"}
+    if reader.reference is None:
+        return {"ok": False, "why": "no empty-board reference yet — clear the board and press Capture empty board"}
+    with ctrl.lock:
+        frame = ctrl.frame.get(d["board"].get("cam"))
+    if frame is None:
+        return {"ok": False, "why": f"no frame from camera {d['board'].get('cam')!r}"}
+    try:
+        read = reader.read(frame)
+    except Exception as e:
+        return {"ok": False, "why": f"could not read the board: {e}"}
+    if read is None:
+        return {"ok": False, "why": "the board reader is not ready"}
+    from .chess import game as chess_game
+    expected = chess_game.occupancy(chess_game.new_board(fen))
+    cells = []
+    for name in chess_ws.squares(d):
+        seen = bool(read["occupancy"].get(name))
+        want = bool(expected.get(name))
+        cells.append({"name": name, "seen": seen, "expected": want, "agree": seen == want,
+                      "colour": read["colours"].get(name),
+                      "diff": round(read["features"][name]["diff"], 1) if name in read["features"] else None})
+    return {"ok": True, "cells": cells, "stable": reader.stable(),
+            "mismatch": [c["name"] for c in cells if not c["agree"]],
+            "threshold": reader.threshold, "light_dark": reader.light_dark}
+
+
+def chess_overlay(ctrl, cam):
+    """The raw overhead frame with the taught board drawn on it — encoded on demand, not in the loop."""
+    import cv2
+    import numpy as np
+    with ctrl.lock:
+        frame = ctrl.frame.get(cam)
+    if frame is None: return None
+    img = frame.copy()
+    d = chess_ws.load()
+    ic = d["board"].get("image_corners") or {}
+    pts = [ic[n] for n in chess_ws.CORNERS if n in ic]
+    for n in chess_ws.CORNERS:
+        if n in ic:
+            x, y = int(ic[n][0]), int(ic[n][1])
+            cv2.circle(img, (x, y), 7, (0, 200, 255), 2)
+            cv2.putText(img, n, (x + 9, y - 9), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+    if len(pts) == 4:
+        cv2.polylines(img, [np.array(pts, np.int32)], True, (0, 200, 255), 2)
+    h = img.shape[0]
+    scale = 720.0 / h if h > 720 else 1.0
+    if scale != 1.0: img = cv2.resize(img, None, fx=scale, fy=scale)
+    ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
+    return buf.tobytes() if ok else None
+
+
+def chess_warp_jpeg(ctrl):
+    """The warped 8x8 board as a still JPEG, with the square grid drawn on it.
+
+    A still rather than a stream: the board only changes between moves, and warping every frame at
+    30 Hz would cost more than the whole control loop."""
+    import cv2
+    d = chess_ws.load()
+    reader = getattr(ctrl, "chess_reader", None)
+    H = reader.H if (reader is not None and reader.ok) else chess_vision.homography(d)
+    if H is None: return None
+    with ctrl.lock:
+        frame = ctrl.frame.get(d["board"].get("cam"))
+    if frame is None: return None
+    px = int(d["vision"].get("warp_px", chess_vision.WARP_PX))
+    img = chess_vision.warp(frame, H, px)
+    cell = px // 8
+    names = chess_vision.square_names(d, px)
+    for k in range(9):
+        cv2.line(img, (k * cell, 0), (k * cell, px), (0, 200, 255), 1)
+        cv2.line(img, (0, k * cell), (px, k * cell), (0, 200, 255), 1)
+    for (r, c), name in names.items():
+        cv2.putText(img, name, (c * cell + 3, r * cell + 13), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 200, 255), 1)
+    ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    return buf.tobytes() if ok else None
+
+
+def chess_cmd(ctrl, payload):
+    """One entry point for every chess and teaching command, shared with the file interface."""
+    from . import app
+    act = payload.get("action", "")
+    st, _ = ctrl.snapshot()
+    if act.startswith("teach_"):
+        return teach_mod.command(ctrl, act, **{k: v for k, v in payload.items() if k != "action"})
+    if act == "routine":
+        ctrl.start_routine(payload.get("name", "chess_verify")); return {"ok": True}
+    app.chess_command(ctrl, act, payload, st.get("limits") or {}, st.get("present") or {})
+    return {"ok": True}
+
+
 def serve(ctrl: Controller, port: int = HTTP_PORT):
     """Start the dashboard in a daemon thread and return the server."""
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(ctrl))
@@ -133,7 +301,12 @@ def make_handler(ctrl: Controller):
             u = urlparse(self.path)
             n = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(n) if n else b""
-            if u.path == "/paint/plan":
+            if u.path == "/chess/cmd":
+                try: res = chess_cmd(ctrl, json.loads(body or b"{}"))
+                except Exception as e:
+                    log(f"chess cmd error: {e}"); res = {"error": str(e)}
+                _json(self, res)
+            elif u.path == "/paint/plan":
                 try: res = paint_plan(ctrl, parse_qs(u.query), body)
                 except Exception as e:
                     log(f"paint plan error: {e}"); res = {"error": str(e)}
@@ -189,6 +362,39 @@ def make_handler(ctrl: Controller):
                 data = f.read_bytes(); ctype = "video/mp4" if f.suffix == ".mp4" else "video/x-msvideo"
                 self.send_response(200); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(data)))
                 self.send_header("Content-Disposition", f'inline; filename="{f.name}"'); self.end_headers(); self.wfile.write(data)
+            elif u.path == "/chess":
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(CHESS_PAGE))); self.end_headers(); self.wfile.write(CHESS_PAGE)
+            elif u.path == "/chess/state":
+                _json(self, chess_state(ctrl))
+            elif u.path == "/chess/cmd":
+                try: chess_cmd(ctrl, {k: v[0] for k, v in parse_qs(u.query).items()})
+                except Exception as e: log(f"chess cmd error: {e}")
+                self.send_response(204); self.end_headers()
+            elif u.path == "/chess/warp.jpg":
+                body = chess_warp_jpeg(ctrl)
+                if not body: self.send_response(503); self.end_headers(); return
+                self.send_response(200); self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            elif u.path == "/chess/history":
+                _json(self, {"rows": chess_history.read(limit=int((parse_qs(u.query).get("n", ["200"])[0]) or 200)),
+                             "stats": chess_history.stats()})
+            elif u.path.startswith("/chess/game/"):
+                g = GameLog.load(u.path.rsplit("/", 1)[1])
+                _json(self, g.doc if g else {"error": "not found"}, 200 if g else 404)
+            elif u.path.endswith(".mjpg") and u.path.startswith("/chess/"):
+                cam = u.path[len("/chess/"):-len(".mjpg")]
+                self.send_response(200); self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=f"); self.end_headers()
+                try:
+                    while True:
+                        frame = chess_overlay(ctrl, cam)
+                        if frame:
+                            self.wfile.write(b"--f\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(frame))
+                            self.wfile.write(frame); self.wfile.write(b"\r\n")
+                        time.sleep(0.2)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
             elif u.path == "/paint":
                 self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(PAINT_PAGE))); self.end_headers(); self.wfile.write(PAINT_PAGE)
