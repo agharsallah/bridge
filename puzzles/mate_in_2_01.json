@@ -1,0 +1,8 @@
+{
+ "name": "mate_in_2_01",
+ "comment": "Legal's mate pattern, white to play and mate in two. The robot plays white; the reply is forced.",
+ "fen": "r1bqkb1r/pppp1Bpp/2n2n2/4p3/4P3/5Q2/PPPP1PPP/RNB1K1NR b KQkq - 0 4",
+ "robot": "white",
+ "mate_in": 2,
+ "solution": ["f3f7"]
+}

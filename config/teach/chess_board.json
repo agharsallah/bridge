@@ -1,0 +1,48 @@
+{
+ "name": "chess_board",
+ "label": "Chess board — corners, pieces and slots",
+ "store": "chess",
+ "note": "Run this once after the board is placed, then run the chess_verify routine. Square names are the squares themselves, so the session is the same whichever colour the robot plays; config/chess.json's board.robot_side decides which end of the board is near.",
+ "steps": [
+  {"id": "ready", "kind": "note", "free": true,
+   "prompt": "Board placed and square to the robot, nothing on it. Gripper CLOSED and empty. The fingertips are the tool: every contact below is the closed fingertips touching the board. Press RELEASE (teach_free) so you can move the arm by hand, then Done."},
+
+  {"id": "a1", "kind": "contact", "to": "board.corners.a1",
+   "prompt": "Closed fingertips on the CENTRE of square a1 (white's near-left corner square). Done."},
+  {"id": "h1", "kind": "contact", "to": "board.corners.h1",
+   "prompt": "Closed fingertips on the CENTRE of h1 — the other corner of white's home rank. Done."},
+  {"id": "h8", "kind": "contact", "to": "board.corners.h8",
+   "prompt": "Closed fingertips on the CENTRE of h8, diagonally opposite a1. Done."},
+  {"id": "a8", "kind": "contact", "to": "board.corners.a8",
+   "prompt": "Closed fingertips on the CENTRE of a8, the last corner. Done."},
+  {"id": "e4", "kind": "contact", "append": "board.extra", "match": "square", "with": {"square": "e4"},
+   "prompt": "Closed fingertips on the CENTRE of e4. This one is not needed for the fit — it is the check that the fit is right. Done."},
+  {"id": "d5", "kind": "contact", "append": "board.extra", "match": "square", "with": {"square": "d5"},
+   "prompt": "Closed fingertips on the CENTRE of d5, the second check point. Done."},
+
+  {"id": "grasp_p", "kind": "grasp", "to": "pieces.p", "square": "e4",
+   "prompt": "Put a PAWN on e4. Open the gripper, lower it around the pawn where you would grip it, close until it holds the pawn firmly. Done. (The height above the board and the lean you used are what get stored.)"},
+  {"id": "grasp_k", "kind": "grasp", "to": "pieces.k", "square": "e4",
+   "prompt": "Same with the KING on e4: open, lower, close until it holds. Done."},
+  {"id": "grasp_q", "kind": "grasp", "to": "pieces.q", "square": "e4",
+   "prompt": "Same with the QUEEN. Skip if the queen grips like the king."},
+  {"id": "grasp_r", "kind": "grasp", "to": "pieces.r", "square": "e4",
+   "prompt": "Same with a ROOK. Skip if it grips like a pawn."},
+  {"id": "grasp_b", "kind": "grasp", "to": "pieces.b", "square": "e4",
+   "prompt": "Same with a BISHOP. Skip if it grips like a pawn."},
+  {"id": "grasp_n", "kind": "grasp", "to": "pieces.n", "square": "e4",
+   "prompt": "Same with a KNIGHT — the awkward one, grip it where it will not turn in the jaws. Skip if it grips like a pawn."},
+
+  {"id": "handover", "kind": "contact", "to": "slots.handover.pose", "slot": "handover",
+   "prompt": "Clear the board. Closed fingertips on the HANDOVER spot, off the board, where captured pieces are put down. Done."},
+  {"id": "feed", "kind": "contact", "to": "slots.feed.pose", "slot": "feed",
+   "prompt": "Closed fingertips on the FEED spot, where you will hand pieces to the robot during setup. Done."},
+  {"id": "reserve_queen_white", "kind": "contact", "to": "slots.reserve_queen_white.pose", "slot": "reserve_queen_white",
+   "prompt": "Closed fingertips where the spare WHITE QUEEN stands (for promotions). Skip if you will handle promotions by hand."},
+  {"id": "reserve_queen_black", "kind": "contact", "to": "slots.reserve_queen_black.pose", "slot": "reserve_queen_black",
+   "prompt": "Closed fingertips where the spare BLACK QUEEN stands. Skip if you will handle promotions by hand."},
+
+  {"id": "finish", "kind": "note",
+   "prompt": "Done teaching. Press ENGAGE (teach_engage), then run the chess_verify routine: it fits the board, prints the residuals and the 64-square reachability report, and drives the arm to every point you just taught so you can see where the tip actually lands."}
+ ]
+}

@@ -44,4 +44,5 @@ def catalog():
 
 def _load_builtins():
     from . import autopick  # noqa: F401  (registers "pick_place")
-    from .paint import routine  # noqa: F401  (registers "paint")
+    from .chess import routine as _chess  # noqa: F401  (chess_play, chess_setup, chess_puzzle, chess_verify)
+    from .paint import routine as _paint  # noqa: F401  (paint)

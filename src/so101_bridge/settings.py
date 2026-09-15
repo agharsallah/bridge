@@ -55,6 +55,18 @@ JPEG_QUALITY = 75
 
 AUTO_RECORD_ROUTINES = True   # record both cameras to var/videos/ while a routine runs
 
+# ------------------------------------------------------- chess (chess/*.py)
+CHESS_CAM = "top"                  # the overhead camera that sees the whole board
+CHESS_ENGINE = ""                  # path to a UCI engine (e.g. "/opt/homebrew/bin/stockfish"); "" = no engine
+CHESS_ENGINE_LIMIT = 0.5           # seconds the engine may think per move
+CHESS_POLL_S = 0.5                 # how often the board is read while it is the human's turn
+CHESS_STABLE_N = 4                 # consecutive quiet samples before a board reading is trusted
+CHESS_STABLE_DIFF = 6.0            # mean per-square change (0-255) below which two readings count as the same
+CHESS_AUTO_TRIGGER = False         # False: a human move also needs chess_confirm (the safe default)
+CHESS_CARRY_CM = 9.0               # height a carried piece travels at — must clear the tallest piece
+CHESS_MAX_LEAN_DEG = 45            # how far the gripper may lean from the taught grasp pitch
+CHESS_MOVE_TIMEOUT_S = 600.0       # how long a player may take before the turn is reported as stuck
+
 # ------------------------------------------------------- paint overlay (paint/vision.py) — same 960x540 frame
 PAPER_S_MAX, PAPER_V_MIN = 60, 150         # paper: low saturation, bright -> whatever the sheet colour
 PAPER_MIN_AREA = 4000
