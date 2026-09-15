@@ -11,27 +11,19 @@ Step ops: "travel" (hover moves), "stroke" (down, along the stroke, up), "dip" (
 
 import json
 import math
-import re
 import time
 
 from ..paths import ROOT
 from ..settings import ARM
+from ..shared.motion import JOINT_STEP_DEG, SAFE_LIFT_DEG  # noqa: F401  (re-exported: were public here)
+from ..shared.motion import densify_joint as _densify_joint
+from ..shared.motion import up as _up
+from ..shared.motion import z_correction as _z_correction
+from ..shared.store import safe_name as _safe
 from ..util import log
 
 PAINTINGS_DIR = ROOT / "paintings"
 STROKE_RES_CM = 0.5            # densify strokes to this spacing on the paper
-JOINT_STEP_DEG = 8.0           # densify joint-space transitions so every path point is within the step cap
-SAFE_LIFT_DEG = 10.0           # go "up" this much (shoulder back) before travelling between paper and stations
-
-
-def _densify_joint(a, b, step=JOINT_STEP_DEG):
-    n = max(1, int(math.ceil(max(abs(b[j] - a[j]) for j in ARM if j in a and j in b) / step)))
-    return [{j: round(a[j] + (b[j] - a[j]) * k / n, 3) for j in ARM if j in a and j in b} for k in range(1, n + 1)]
-
-
-def _up(pose, d=SAFE_LIFT_DEG):
-    p = dict(pose); p["shoulder_lift"] = pose["shoulder_lift"] - d; p["wrist_flex"] = pose.get("wrist_flex", 0) + 0.7 * d
-    return p
 
 
 def _station_poses(ws, name):
@@ -48,15 +40,7 @@ def z_correction(ws):
     brush ends up lower than planned (1.5-2 cm on this arm). ``config/painting.json["probes"]`` holds where
     the brush *actually* touched the paper at a *commanded* height: {"u", "v", "z_touch_cm"}. Between probes
     the correction is inverse-distance interpolated; with no probes it falls back to ``brush.z_offset_cm``."""
-    probes = [p for p in ws.get("probes", []) if "z_touch_cm" in p]
-    const = float(ws["brush"].get("z_offset_cm", 0.0))
-    if not probes:
-        return lambda u, v: const
-
-    def corr(u, v):
-        w = [1.0 / max(0.25, math.hypot(u - float(p["u"]), v - float(p["v"]))) ** 2 for p in probes]
-        return sum(wi * float(p["z_touch_cm"]) for wi, p in zip(w, probes)) / sum(w)
-    return corr
+    return _z_correction(ws.get("probes", []), ws["brush"].get("z_offset_cm", 0.0))
 
 
 def compile_program(plan, ws, tool, name, image_name="", dry_run=False):
@@ -179,25 +163,21 @@ def compile_plan(plan_in, ws, tool, name, dry_run=False):
 
 
 # ---------------------------------------------------------------- store
-def _safe(name):
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip())[:60] or "painting"
-
-
 def save(program):
     PAINTINGS_DIR.mkdir(parents=True, exist_ok=True)
-    program["name"] = _safe(program["name"])
+    program["name"] = _safe(program["name"], fallback="painting")
     path = PAINTINGS_DIR / f"{program['name']}.json"
     path.write_text(json.dumps(program)); log(f"paint: program saved -> {path.name} ({program['stats']})")
     return program["name"]
 
 
 def load(name):
-    path = PAINTINGS_DIR / f"{_safe(name)}.json"
+    path = PAINTINGS_DIR / f"{_safe(name, fallback='painting')}.json"
     return json.loads(path.read_text()) if path.is_file() else None
 
 
 def delete(name):
-    path = PAINTINGS_DIR / f"{_safe(name)}.json"
+    path = PAINTINGS_DIR / f"{_safe(name, fallback='painting')}.json"
     if path.is_file(): path.unlink(); log(f"paint: program {name} deleted")
 
 

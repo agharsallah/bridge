@@ -14,11 +14,8 @@
 Poses are joint dicts (degrees). "u" runs along the paper width (A->B), "v" down the height (A->D), in cm.
 """
 
-import json
-import time
-
 from ..paths import CONFIG_DIR
-from ..settings import ARM
+from ..shared.store import load_json, pose_round, save_json
 from ..util import log
 
 PAINT_FILE = CONFIG_DIR / "painting.json"
@@ -29,24 +26,19 @@ BRUSH_DEFAULTS = {"hover_cm": 1.5, "press_cm": 0.15, "width_mm": 6.0, "dip_every
                   "z_offset_cm": 0.0}   # measured correction: + raises every paper height the tool model computes
 
 
-def _pose(p):
-    return {j: round(float(p[j]), 2) for j in ARM if j in p}
+_pose = pose_round
+DEFAULTS = {"paper": {"width_cm": 21.0, "height_cm": 14.8, "corners": {}, "extra": []},
+            "stations": {}, "brush": dict(BRUSH_DEFAULTS)}
 
 
 def load():
-    try:
-        d = json.loads(PAINT_FILE.read_text()) if PAINT_FILE.is_file() else {}
-    except Exception as e:
-        log(f"config/painting.json unreadable: {e}"); d = {}
-    d.setdefault("paper", {}).setdefault("corners", {}); d["paper"].setdefault("extra", [])
-    d["paper"].setdefault("width_cm", 21.0); d["paper"].setdefault("height_cm", 14.8)
-    d.setdefault("stations", {}); d["brush"] = {**BRUSH_DEFAULTS, **d.get("brush", {})}
+    d = load_json(PAINT_FILE, DEFAULTS)
+    d["brush"] = {**BRUSH_DEFAULTS, **d.get("brush", {})}
     return d
 
 
 def save(d):
-    d["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    PAINT_FILE.write_text(json.dumps(d, indent=1))
+    save_json(PAINT_FILE, d)
 
 
 def corner_uv(d, name):

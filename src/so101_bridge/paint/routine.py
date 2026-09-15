@@ -7,28 +7,12 @@ then ctrl.start_routine("paint"). Progress for the paper canvas is in ctrl.progr
 import time
 
 from ..routines import routine
+from ..shared.motion import BRIDGE_STEP_DEG  # noqa: F401  (re-exported: was public here)
+from ..shared.motion import bridge_from_present as _bridge_from_present
 from ..util import log
 from . import program as store
 
 PHASES = ("preflight", "start", "painting", "finish", "done")
-BRIDGE_STEP_DEG = 8.0      # densify the approach from wherever the arm is to a step's first point
-
-
-def _bridge_from_present(ctrl, points):
-    """Prepend a densified approach from the arm's present pose to the first point of a step.
-
-    Programs are compiled without knowing where the arm will be when they start (rest, or wherever a
-    previous run was interrupted). A far first point would be step-capped to 12 deg by the control loop and
-    the arm would run the rest of the step from the wrong place — so walk there first, in small steps."""
-    st, _ = ctrl.snapshot(); present = st.get("present") or {}
-    first = points[0]
-    joints = [j for j in first if j in present]
-    if not joints: return points
-    far = max(abs(first[j] - present[j]) for j in joints)
-    if far <= BRIDGE_STEP_DEG: return points
-    n = int(far // BRIDGE_STEP_DEG) + 1
-    lead = [{j: round(present[j] + (first[j] - present[j]) * k / n, 3) for j in joints} for k in range(1, n)]
-    return lead + list(points)
 
 
 @routine("paint", label="PAINT — run a saved program",

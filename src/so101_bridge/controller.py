@@ -25,6 +25,7 @@ class Controller:
         self.lock = threading.Lock()
         self.pending = []            # command dicts from files / http / routine
         self.jpeg = {}               # latest encoded frames for the dashboard
+        self.frame = {}              # latest RAW frames per camera (routines that do their own vision)
         self.blob = {}               # latest detections per camera
         self.paint_jpeg = {}         # latest paper/colour-well overlay frames for the /paint page
         self.state = {}
@@ -34,6 +35,11 @@ class Controller:
         self.rec_file, self.rec_t0, self.rec_name = None, 0.0, None
         self.floor = FloorModel()
         self.video = VideoRecorder()
+        self.teach = None            # the running guided-teaching session (shared/teach.py), or None
+        self.chess_request = None    # what the next chess routine should do (set by the dashboard / a file command)
+        self.chess_reader = None     # the calibrated board reader: shared by the routine and the /chess page,
+                                     # because its empty-board reference and fitted thresholds are expensive
+                                     # to rebuild and are what makes two readings comparable
         # --- observability: what the routine is doing, what the guards did, whether we may start
         self.progress = self._fresh_progress()
         self.events = deque(maxlen=60)           # guard / safety events: {"t", "time", "kind", "msg"}
@@ -135,18 +141,32 @@ class Controller:
             self.routine_status = f"goto {name}: {'done' if ok else 'interrupted'}"; log(self.routine_status)
         self.routine_thread = threading.Thread(target=run, daemon=True); self.routine_thread.start()
 
+    def rest_path(self, gripper="rest"):
+        """Return to REST from anywhere, synchronously. True if it arrived.
+
+        First up to the mid pose, then the proven fold-down path (docs/learnings.md). ``gripper`` is
+        ``"rest"`` to take the opening from config/rest.json (what the REST button has always done) or
+        None to leave the gripper exactly as it is — a routine that has just put a piece down does not
+        want the jaws clamping shut on the way home. Runs in the caller's thread, so a routine can end
+        with ``ctrl.rest_path()`` and know the arm is parked before it reports done."""
+        rest = load_rest()
+        mid = P(pan=rest["shoulder_pan"], lift=0, elbow=68.5, wrist=22, grip=10)
+        if gripper is None:
+            mid.pop("gripper", None); rest = {j: v for j, v in rest.items() if j != "gripper"}
+        ok = self.goto_far(mid, 4.0)
+        for wp in RETREAT[4:-1]:
+            if not ok: break
+            ok = self.goto(wp, 5.0)
+        if ok: ok = self.goto_far(rest, 4.0)
+        return ok
+
     def go_rest(self):
-        """Return to REST from anywhere: first up to the mid pose (gripper closed), then the proven fold-down path."""
+        """The REST button: :meth:`rest_path` in its own thread so the dashboard stays responsive."""
         if self.routine_thread and self.routine_thread.is_alive():
             log("busy: a routine is running (ABORT first)"); return
         self.routine_abort.clear(); self.routine_status = "going to rest"
         def run():
-            rest = load_rest()
-            ok = self.goto_far(P(pan=rest["shoulder_pan"], lift=0, elbow=68.5, wrist=22, grip=10), 4.0)
-            for wp in RETREAT[4:-1]:
-                if not ok: break
-                ok = self.goto(wp, 5.0)
-            if ok: ok = self.goto_far(rest, 4.0)
+            ok = self.rest_path()
             self.routine_status = "rest: " + ("done" if ok else "interrupted"); log(self.routine_status)
         self.routine_thread = threading.Thread(target=run, daemon=True); self.routine_thread.start()
 
