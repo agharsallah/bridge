@@ -142,8 +142,11 @@ def test_load_guard_freezes_a_move(rig):
     robot, ctrl, limits, tmp = rig
     robot.bus.load = {j: 999 for j in JOINTS}
     ctrl.request({"action": "goal", "goal": {"shoulder_lift": 8.0}, "speed": 30.0, "src": "test"})
-    app.control_loop(robot, ctrl, limits, max_iters=6)
+    # the guard needs two consecutive hot samples, and state.json is only rewritten every STATE_EVERY
+    # seconds — six iterations is exactly one state period, so run long enough to be sure of a write
+    app.control_loop(robot, ctrl, limits, max_iters=20)
     assert state_of(tmp)["mode"] == "stalled"
+    assert any(e["kind"] == "LOAD GUARD" for e in ctrl.events)
 
 
 def test_unknown_joint_is_ignored(rig):
