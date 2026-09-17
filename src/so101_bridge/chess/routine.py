@@ -157,7 +157,7 @@ def _reader(ctrl, d, board=None):
         return None
     if board is not None:
         read = r.read(frame)
-        if read: r.calibrate(read["features"], board)
+        if read and r.calibrate(read["features"], board).get("occ_threshold"): r.persist()   # thresholds survive a restart
     ctrl.chess_reader = r
     return r
 
@@ -278,7 +278,10 @@ def _execute(ctrl, d, model, board, glog, uci, by, reader):
                             detail="; ".join(b["why"] for b in bad))
         glog.clear_need()
         return True
-    steps = physical.steps(model, planned["actions"], d, dry_run=bool(_request(ctrl, "dry", clear=False)))
+    st, _ = ctrl.snapshot()
+    pre, start_uv = physical.approach(model, d, {j: st["present"][j] for j in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex")})
+    steps = physical.steps(model, planned["actions"], d, dry_run=bool(_request(ctrl, "dry", clear=False)), start_uv=start_uv)
+    if steps is not None: steps = pre + steps
     if steps is None:
         return _fail(ctrl, f"could not compile a path for {planned['san']}", glog)
     ply = len(glog.doc["moves"]) + 1
@@ -288,6 +291,11 @@ def _execute(ctrl, d, model, board, glog, uci, by, reader):
     if not ok:
         glog.need("grasp_failed", move=uci, san=planned["san"], detail=why)
         return _fail(ctrl, why, glog)
+    last = [a for a in planned["actions"] if a.get("sq")]
+    if last:
+        back = physical.retreat(model, d, ws_mod.square_uv(d, last[-1]["sq"]))
+        ok, why = run_steps(ctrl, back, lambda label: ctrl.phase("robot_turn", label))
+        if not ok: return _fail(ctrl, why, glog)
     ctrl.rest_path(gripper=None)
     seconds = round(time.time() - t0, 1)
     san, fen = rules.push(board, uci)

@@ -311,3 +311,33 @@ Offsets found one primitive at a time with the operator judging each pause:
 per confirm, the operator states the offset they see ("0.3 cm forward, 0.5 cm left"), the offset goes into
 config, and the run resumes from the last good step. Two passes were enough to centre both the pick and the
 place; a full autonomous run comes after, never before.
+
+## Camera-driven game, first robot move verified by the camera (2026-09-17, 15:20–16:03)
+
+Setup that works, two commands on an EMPTY board, both persisted (`board.image_corners` in chess.json,
+`var/chess_reference.png`): `scripts/chess.sh grid` (cv2.findChessboardCorners → the four corner-square
+centres) then `scripts/chess.sh reference`. Mid-game, `FROM_POSITION=true scripts/chess.sh reference`
+synthesizes the empty board from the known position (occupied cells painted with the median empty cell of
+the same colour). Never capture a plain reference with pieces on: every occupied square then reads empty
+for the rest of the game.
+
+What broke and the fix:
+- **Image corners are in raw-frame pixels (1920×1080)**, the preview is 960×540 — a 2× scale error put the
+  grid on the laptop keyboard.
+- **Auto-exposure**: the frame brightens when pieces arrive; every empty square then differs 30–58 from a
+  reference taken minutes earlier. `_match_exposure` maps the frame onto the reference using the medians of
+  the board's dark and light tones (pieces are outliers). Empties dropped to 0.6–6.
+- **One threshold cannot serve both square colours**: black on dark ≈ 6–18, empty light ≈ 5–6. Thresholds are
+  now fitted per square colour (`{"dark": 7.5, "light": 9.9}` today).
+- **The routine recaptured the reference from the live (populated) frame** whenever it built a new reader.
+  It now keeps a persisted reference. The dashboard rebuilds the reader after a restart the same way.
+- **Perspective lean**: at this camera angle a piece's head reaches into the cell above (knight on c3 read
+  as d4 occupied). `vision.centre_frac` 0.6 → 0.4 helps; the real fix is a camera straight above the board.
+- **Grasp signature must be judged against the close target**: with close=7.2 an empty close settles at
+  7.3 and a hold at 7.7 — `stall_min` below the close target detects nothing. Now close 5.0, hold ≥ 5.8.
+- **Paths across the board**: a joint-space bridge from rest, or "rest" sent from a low pose, sweeps pieces.
+  `physical.approach` lifts straight up if low and enters over the corner nearest the arm (h1) at carry
+  height; `physical.retreat` goes back over h1 at carry before folding to rest.
+
+Result: 2.Nc3 (b1→c3) played by the arm from rest and back, verified by the camera at rest (b1 empty,
+c3 occupied). Pick offset ended at [-0.7, -0.3] cm after the operator's step-mode corrections.

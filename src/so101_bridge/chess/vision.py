@@ -296,10 +296,10 @@ class BoardReader:
         self.history = []
         self._load_reference()
 
-    # the empty-board reference survives a daemon restart: it is a picture, so it lives in var/, not in the config
+    # the empty-board reference survives a daemon restart: a picture next to config/chess.json (same
+    # lifetime as the taught image corners — and the tests redirect CHESS_FILE, so they never touch it)
     def _ref_path(self):
-        from ..paths import VAR_DIR
-        return VAR_DIR / "chess_reference.png"
+        return ws_mod.CHESS_FILE.with_name("chess_reference.png")
 
     def _load_reference(self):
         cv2 = _cv2(); path = self._ref_path()

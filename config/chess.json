@@ -85,9 +85,9 @@
   "p": {
    "grasp_z_cm": 1.15,
    "lean_deg": 16.5,
-   "open": null,
-   "close": 9.8,
-   "stall_min": 12,
+   "open": 26.0,
+   "close": 7.5,
+   "stall_min": 8.5,
    "height_cm": 3.0,
    "grasp_pose": {
     "shoulder_pan": -5.45,
@@ -102,8 +102,8 @@
    "grasp_z_cm": 2.77,
    "lean_deg": 17.5,
    "open": 22.0,
-   "close": 7.2,
-   "stall_min": 4.0,
+   "close": 5.0,
+   "stall_min": 5.8,
    "height_cm": 4.0,
    "grasp_pose": {
     "shoulder_pan": -4.04,
@@ -219,7 +219,7 @@
    -1.7
   ],
   "pick_offset_cm": [
-   -0.5,
+   -0.7,
    -0.3
   ]
  },
@@ -227,9 +227,9 @@
  "vision": {
   "occ_threshold": null,
   "warp_px": 512,
-  "centre_frac": 0.6,
+  "centre_frac": 0.4,
   "reference": "chess_reference.png"
  },
  "unreachable": [],
- "updated": "2026-09-17 15:43:41"
+ "updated": "2026-09-17 16:12:21"
 }

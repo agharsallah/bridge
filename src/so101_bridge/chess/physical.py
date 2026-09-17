@@ -141,6 +141,42 @@ def _slot_uv(d, name):
     return (float(uv[0]), float(uv[1])) if uv else None
 
 
+def approach(model, d, present):
+    """Steps that bring the arm from wherever it is to carry height over the board, without crossing it low.
+
+    Over the board and low: straight up at the same (u, v). Off the board (rest, a slot): one move to carry
+    height over the corner square nearest to the present tip — from rest that is a short, high hop beside
+    the board — and the caller travels in-plane from there. Returns ``(steps, start_uv)``."""
+    carry = _carry(d)
+    u, v, z = model.pose_to_uv(present)
+    z_cm = z * 100.0
+    if ws_mod.uv_square(d, u, v) is not None:
+        if z_cm < carry - 0.5:
+            at = lambda zz: model.uv_to_pose(u, v, zz)
+            up = _column(at, u, v, z_cm, carry, lambda *_: 0.0)
+            if up: return [{"op": "path", "points": up, "speed": DESCEND_SPEED, "label": "lift clear of the pieces"}], (u, v)
+        return [], (u, v)
+    corner = min(ws_mod.CORNERS, key=lambda n: math.hypot(*(a - b for a, b in zip(ws_mod.square_uv(d, n), (u, v)))))
+    pose = model.pose_for(corner, carry)
+    if pose is None: return [], None
+    return [{"op": "path", "points": [pose], "speed": TRAVEL_SPEED, "label": f"enter over {corner}"}], ws_mod.square_uv(d, corner)
+
+
+def retreat(model, d, from_uv):
+    """In-plane travel at carry height from ``from_uv`` back to the corner square nearest the arm's rest,
+    so the folding into rest starts beside the board instead of diving across it. [] if nothing is needed."""
+    carry = _carry(d)
+    corner = min(ws_mod.CORNERS, key=lambda n: math.hypot(*(a - b for a, b in zip(ws_mod.square_uv(d, n), REST_SIDE_UV(d)))))
+    pts = plane_travel(model, from_uv, ws_mod.square_uv(d, corner), carry, step_cm=PLANE_STEP_CM)
+    return [{"op": "path", "points": pts, "speed": TRAVEL_SPEED, "label": f"back over {corner}"}] if pts else []
+
+
+def REST_SIDE_UV(d):
+    """Where the arm's rest sits in board coordinates: beside the near-right corner (h1 for white)."""
+    p = ws_mod.pitch_cm(d)
+    return (8 * p, 8 * p)
+
+
 def steps(model, actions, d=None, dry_run=False, start_uv=None):
     """Primitive steps for a list of actions, or None if any of them cannot be served.
 
@@ -182,6 +218,8 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
         u, v = ws_mod.square_uv(d, a["sq"])
         off = d["heights"].get(f"{a['op']}_offset_cm")   # pick/place [du, dv] cm: where the jaws really land vs the model
         if off: u, v = u + float(off[0]), v + float(off[1])
+        sq_off = (d["heights"].get("square_offset_cm") or {}).get(a["sq"])   # and a residual measured on that one square
+        if sq_off: u, v = u + float(sq_off[0]), v + float(sq_off[1])
         # a piece is picked at the lean it was taught at (where the model is accurate) but set down as upright
         # as the arm allows: released tilted, its base meets the board on one edge and it falls over
         if a["op"] == "place": lean = d["heights"].get("place_lean_deg", lean)

@@ -10,7 +10,6 @@ import time
 from .paths import LIMITS_FILE
 from .settings import (
     CAL_MARGIN_DEG,
-    CAM_FOURCC,
     CAM_FPS,
     CAM_H,
     CAM_MAX_AGE_MS,
@@ -26,12 +25,12 @@ from .settings import (
     PORT,
     ROBOT_ID,
 )
+from .camera_worker import WorkerCamera
 from .util import log
 
 
 def _lerobot():
     """Import lerobot only when an arm is actually connected, so the package (and its tests) load without it."""
-    from lerobot.cameras.opencv import OpenCVCameraConfig
     from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
 
     class QuietFollower(SOFollower):
@@ -43,7 +42,7 @@ def _lerobot():
         def configure(self) -> None:
             pass
 
-    return OpenCVCameraConfig, SOFollowerRobotConfig, QuietFollower
+    return SOFollowerRobotConfig, QuietFollower
 
 
 def connect(attempts: int = 5):
@@ -54,16 +53,14 @@ def connect(attempts: int = 5):
     refuses to run when it is — so a wedged USB camera would otherwise stop the arm being commanded at
     all. A detached camera is retried in the background and joins the running bridge when it comes back.
     """
-    OpenCVCameraConfig, SOFollowerRobotConfig, QuietFollower = _lerobot()
-    cams = {n: OpenCVCameraConfig(index_or_path=i, fps=CAM_FPS, fourcc=CAM_FOURCC,
-                                  width=CAM_SIZE.get(n, (CAM_W, CAM_H))[0],
-                                  height=CAM_SIZE.get(n, (CAM_W, CAM_H))[1])
-            for n, i in CAMS.items()}
-    _CAM_CFG.update(cams)
-    cfg = SOFollowerRobotConfig(port=PORT, id=ROBOT_ID, cameras=cams, disable_torque_on_disconnect=False,
-                                max_relative_target=5.0)
+    SOFollowerRobotConfig, QuietFollower = _lerobot()
+    for n, i in CAMS.items():
+        w, h = CAM_SIZE.get(n, (CAM_W, CAM_H))
+        _CAM_CFG[n] = dict(name=n, index=i, width=w, height=h, fps=CAM_FPS)
+    cfg = SOFollowerRobotConfig(port=PORT, id=ROBOT_ID, cameras={}, disable_torque_on_disconnect=False,
+                                max_relative_target=5.0)     # cameras are ours, not lerobot's: see camera_worker
     robot = QuietFollower(cfg)
-    wanted = dict(robot.cameras); robot.cameras = {}        # the bus first, cameras below
+    wanted = {n: WorkerCamera(**c) for n, c in _CAM_CFG.items()}   # the bus first, cameras below
     for attempt in range(1, attempts + 1):
         try:
             log(f"connecting (attempt {attempt})..."); robot.connect(calibrate=False)
@@ -99,7 +96,7 @@ _CAM = {}   # per camera: the object, when it went quiet, when to try it next, w
 _STRIKES = {}   # per camera: consecutive missed reads, reset by the first good frame
 _CAM_CFG = {}   # per camera: the config it was built from, so a dead one can be rebuilt rather than reopened
 CAM_STRIKES = 3   # consecutive missed frames before a camera is detached — one hiccup must not cost the session
-CAM_REOPEN_WARMUP_S = 4   # how long a rebuilt camera may take to deliver its first frame (default 1 s is too short after a USB drop)
+CAM_REOPEN_WARMUP_S = 4   # how long a respawned camera process may take to deliver its first frame
 
 
 def read_observation(robot):
@@ -129,8 +126,7 @@ def camera_status():
 def _frame(robot, name):
     """The newest frame, or None. A camera is only given up on after CAM_STRIKES misses in a row.
 
-    A single miss is normal — the wrist camera's cable is on a moving arm — and detaching costs the whole
-    session, because lerobot's read loop spins on a broken capture session and never recovers by itself.
+    A single miss is normal — the wrist camera's cable is on a moving arm — and detaching means a respawn.
     """
     cam = robot.cameras[name]
     try:
@@ -167,34 +163,19 @@ def _attach(robot, name, cam):
 
 
 def _release(cam):
-    """Let go of the device completely: lerobot's disconnect() leaves the VideoCapture for the GC."""
     try: cam.disconnect()
     except Exception: pass
-    vc = getattr(cam, "videocapture", None)
-    if vc is not None:
-        try: vc.release()
-        except Exception: pass
-        cam.videocapture = None
 
 
 def _rebuild(name):
-    """A brand-new camera object from the stored config, or None if it cannot be built.
+    """A brand-new camera — a new process — from the stored config, or None if there is none.
 
-    Reopening the *same* object is what never came back: once its capture session is broken, connect()
-    re-warms against the dead session and times out every time. A fresh object opens cleanly — a plain
-    VideoCapture on the same index delivers full frame rate while the other camera streams.
+    Reopening in this process is what never came back: after a USB drop AVFoundation keeps pointing the
+    index at the vanished device, which opens but never delivers a frame (see camera_worker). A fresh
+    process enumerates afresh and streams at once.
     """
     cfg = _CAM_CFG.get(name)
-    if cfg is None: return None
-    try:
-        import dataclasses
-        from lerobot.cameras.opencv import OpenCVCamera
-        # A camera that fell off USB and came back is enumerated again before AVFoundation will stream
-        # from it: the first frame can take a few seconds, and lerobot's default 1 s warmup gives up first.
-        return OpenCVCamera(dataclasses.replace(cfg, warmup_s=CAM_REOPEN_WARMUP_S))
-    except Exception as e:
-        log(f"camera {name}: could not rebuild ({e})")
-        return None
+    return WorkerCamera(**cfg, warmup_s=CAM_REOPEN_WARMUP_S) if cfg else None
 
 
 def _retry(robot, name, st):

@@ -139,7 +139,7 @@ def chess_command(ctrl, act, c, limits, present):
             if glog is None: log("chess: no game to take the position from"); return
             if not reader.set_reference_from_position(frame, glog.board()): log("chess: could not synthesize the reference"); return
             read = reader.read(frame)
-            if read: reader.calibrate(read["features"], glog.board())
+            if read and reader.calibrate(read["features"], glog.board()).get("occ_threshold"): reader.persist()
             ctrl.chess_reader = reader
             log(f"chess: reference synthesized from the position of game {glog.id} — occupancy readings are live")
             return
@@ -163,7 +163,7 @@ def chess_command(ctrl, act, c, limits, present):
     elif act == "chess_new":
         GameLog.new(mode=c.get("mode", "play"), robot=c.get("robot", chess_ws.load()["board"]["robot_side"]),
                     players=c.get("players"), start_fen=c.get("fen"))
-    elif act == "chess_move": ask(move=str(c.get("move", "")).strip().lower())
+    elif act == "chess_move": ask(move=str(c.get("move", "")).strip().lower(), from_step=int(c.get("from_step") or 0))
     elif act == "chess_confirm": ask(confirm=True)
     elif act in ("chess_play", "chess_setup", "chess_puzzle", "chess_verify"):
         ask(**{k: v for k, v in c.items() if k != "action"})
