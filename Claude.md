@@ -7,3 +7,4 @@
 - You are dealing with hardware, an S101 arm that have limited range of motion and specific constraints.
 - Always consider the safety of the hardware and avoid actions that could cause damage.
 - If a script reaches +300 lines, consider breaking it into smaller, manageable, reusable parts.
+- Never release the torque again without me giving you the OK
