@@ -12,10 +12,18 @@ import os
 # ------------------------------------------------------------------------------- hardware
 PORT = "/dev/cu.usbmodem5A460836731"
 ROBOT_ID = "my_follower"
-CAMS = {"top": 0, "wrist": 1}
+CAMS = {"top": 1, "wrist": 0}
 CAM_W, CAM_H, CAM_FPS = 1920, 1080, 30
+CAM_SIZE = {"wrist": (1280, 720)}   # both cameras share one USB 2.0 hub: two 1080p streams do not fit in
+                                    # 480 Mbps and the second one never gets a frame. The board reader needs
+                                    # the overhead camera at full size; every other view is resized to
+                                    # FRAME_W x FRAME_H anyway, so the wrist camera gives the bus back.
 CAM_FOURCC = None           # AVFoundation ignores it on macOS; a Linux host can ask for "MJPG" here
-CAM_MAX_AGE_MS = 1500       # a frame older than this counts as missing — the loop never waits for a camera
+CAM_MAX_AGE_MS = 3000       # a frame older than this counts as missing — the loop never waits for a camera.
+                            # Generous on purpose: a camera sharing the USB hub hiccups, and detaching is a
+                            # one-way trip (it cannot reopen while the other camera holds the bandwidth).
+                            # Nothing downstream sees a stale frame anyway — every reader goes through
+                            # Controller.latest_frame, which enforces FRAME_MAX_AGE_S of its own.
 CAM_RETRY_S = 5.0           # how often a camera that stopped delivering is reopened, off the control thread
 FRAME_MAX_AGE_S = 2.0       # how old the newest frame may be before vision treats a camera as blind
 HTTP_PORT = 8765

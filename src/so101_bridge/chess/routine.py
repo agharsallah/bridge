@@ -74,14 +74,35 @@ def _wait_for(ctrl, predicate, timeout=600.0, poll=0.2):
     return False
 
 
+def _snapshot(ctrl, name):
+    """Save the newest overhead frame under var/steps/ so a step can be looked at afterwards. Silent if no camera."""
+    frame = _frame(ctrl)
+    if frame is None: return
+    try:
+        import cv2
+        from ..paths import VAR_DIR
+        out = VAR_DIR / "steps"; out.mkdir(exist_ok=True)
+        cv2.imwrite(str(out / f"{time.strftime('%H%M%S')}_{name.replace(' ', '_')}.jpg"), frame)
+    except Exception as e:
+        log(f"chess: step snapshot failed: {e}")
+
+
 def run_steps(ctrl, steps, on_phase=None, record=None):
     """Execute the primitives from :func:`physical.steps`. ``(ok, reason)``.
 
     ``record(row)`` is called once per gripper action that carries a ``record`` block, with the settled
     opening and whether it counted as a hold added — that is what feeds ``chess/history.py``."""
     from ..shared.motion import bridge_from_present
+    stepwise = bool(_request(ctrl, "step", clear=False))
+    resume = int(_request(ctrl, "from_step") or 0)          # 1-based: steps before it already succeeded, skip them
     for i, s in enumerate(steps):
         if ctrl.routine_abort.is_set(): return False, f"aborted at step {i + 1}/{len(steps)}"
+        if i + 1 < resume: continue
+        if stepwise:
+            # the operator watches one primitive at a time: hold here until chess_confirm, keep a still of the board
+            _snapshot(ctrl, f"{i:02d}_before_{s.get('label', s['op'])}")
+            ctrl.phase("robot_turn", f"step {i + 1}/{len(steps)}: {s.get('label', s['op'])} — chess_confirm to run it")
+            if not _wait_for(ctrl, lambda: _request(ctrl, "confirm")): return False, f"stopped before step {i + 1}"
         if on_phase: on_phase(s.get("label", s["op"]))
         if s["op"] == "dwell":
             t0 = time.time()

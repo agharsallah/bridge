@@ -2,10 +2,10 @@
  "extend": {
   "shoulder_lift": [
    -47,
-   115
+   133.0
   ],
   "elbow_flex": [
-   -80.4,
+   -86.0,
    84.5
   ],
   "wrist_flex": [

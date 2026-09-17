@@ -3,111 +3,161 @@
   "size_cm": 24.0,
   "robot_side": "white",
   "cam": "top",
-  "corners": {},
-  "extra": [],
+  "corners": {
+   "a1": {
+    "shoulder_pan": -35.96,
+    "shoulder_lift": 66.02,
+    "elbow_flex": 12.88,
+    "wrist_flex": 67.82,
+    "wrist_roll": -2.68
+   },
+   "h1": {
+    "shoulder_pan": 24.97,
+    "shoulder_lift": 71.56,
+    "elbow_flex": 4.79,
+    "wrist_flex": 74.24,
+    "wrist_roll": -2.77
+   },
+   "h8": {
+    "shoulder_pan": 6.15,
+    "shoulder_lift": 141.19,
+    "elbow_flex": -84.79,
+    "wrist_flex": 42.42,
+    "wrist_roll": -2.59
+   },
+   "a8": {
+    "shoulder_pan": -24.88,
+    "shoulder_lift": 141.63,
+    "elbow_flex": -84.88,
+    "wrist_flex": 42.33,
+    "wrist_roll": -2.77
+   }
+  },
+  "extra": [
+   {
+    "square": "e4",
+    "pose": {
+     "shoulder_pan": -4.48,
+     "shoulder_lift": 107.08,
+     "elbow_flex": -53.76,
+     "wrist_flex": 97.8,
+     "wrist_roll": -2.95
+    }
+   },
+   {
+    "square": "d5",
+    "pose": {
+     "shoulder_pan": -10.55,
+     "shoulder_lift": 107.16,
+     "elbow_flex": -51.12,
+     "wrist_flex": 81.71,
+     "wrist_roll": -2.33
+    }
+   }
+  ],
   "image_corners": {},
   "reach": {}
  },
  "gripper": {
-  "tool_len_cm": 11.0,
+  "tool_len_cm": 15.8,
   "open": 22.0,
   "close": 8.0,
   "max_lean_deg": 45.0
  },
  "pieces": {
   "p": {
-   "grasp_z_cm": 1.98,
-   "lean_deg": 0.0,
+   "grasp_z_cm": 1.15,
+   "lean_deg": 16.5,
    "open": null,
-   "close": 8.4,
+   "close": 9.8,
    "stall_min": 12,
    "height_cm": 3.0,
    "grasp_pose": {
-    "shoulder_pan": -22.42,
-    "shoulder_lift": 52.22,
-    "elbow_flex": 23.87,
-    "wrist_flex": 56.75,
-    "wrist_roll": -1.8
+    "shoulder_pan": -5.45,
+    "shoulder_lift": 91.43,
+    "elbow_flex": -28.35,
+    "wrist_flex": 81.27,
+    "wrist_roll": -2.33
    },
    "taught_on": "e4"
   },
   "n": {
-   "grasp_z_cm": 1.2,
-   "lean_deg": 0.0,
+   "grasp_z_cm": 2.77,
+   "lean_deg": 17.5,
    "open": 22.0,
-   "close": 0.0,
+   "close": 7.2,
    "stall_min": 4.0,
    "height_cm": 4.0,
    "grasp_pose": {
-    "shoulder_pan": -22.51,
-    "shoulder_lift": 40.79,
-    "elbow_flex": 35.38,
-    "wrist_flex": 48.75,
-    "wrist_roll": -1.54
+    "shoulder_pan": -4.04,
+    "shoulder_lift": 91.52,
+    "elbow_flex": -35.47,
+    "wrist_flex": 87.25,
+    "wrist_roll": -2.42
    },
    "taught_on": "e4"
   },
   "b": {
-   "grasp_z_cm": 2.97,
-   "lean_deg": 0.0,
+   "grasp_z_cm": 2.89,
+   "lean_deg": 18.1,
    "open": null,
-   "close": 9.2,
+   "close": 10.9,
    "stall_min": 12,
    "height_cm": 5.0,
    "grasp_pose": {
-    "shoulder_pan": -22.59,
-    "shoulder_lift": 42.11,
-    "elbow_flex": 32.75,
-    "wrist_flex": 49.19,
-    "wrist_roll": -1.45
+    "shoulder_pan": -4.4,
+    "shoulder_lift": 91.52,
+    "elbow_flex": -35.82,
+    "wrist_flex": 87.08,
+    "wrist_roll": -2.59
    },
    "taught_on": "e4"
   },
   "r": {
-   "grasp_z_cm": 3.03,
-   "lean_deg": 0.0,
+   "grasp_z_cm": 2.83,
+   "lean_deg": 17.9,
    "open": null,
-   "close": 9.3,
+   "close": 11.0,
    "stall_min": 12,
    "height_cm": 3.5,
    "grasp_pose": {
-    "shoulder_pan": -22.77,
-    "shoulder_lift": 42.11,
-    "elbow_flex": 32.66,
-    "wrist_flex": 48.92,
-    "wrist_roll": -1.45
+    "shoulder_pan": -4.13,
+    "shoulder_lift": 91.6,
+    "elbow_flex": -35.74,
+    "wrist_flex": 87.08,
+    "wrist_roll": -2.59
    },
    "taught_on": "e4"
   },
   "q": {
-   "grasp_z_cm": 3.77,
-   "lean_deg": 0.0,
+   "grasp_z_cm": 3.22,
+   "lean_deg": 18.8,
    "open": null,
-   "close": 10.9,
+   "close": 12.3,
    "stall_min": 12,
    "height_cm": 5.5,
    "grasp_pose": {
-    "shoulder_pan": -22.68,
-    "shoulder_lift": 41.58,
-    "elbow_flex": 28.0,
-    "wrist_flex": 56.75,
-    "wrist_roll": -1.36
+    "shoulder_pan": -3.87,
+    "shoulder_lift": 90.99,
+    "elbow_flex": -36.26,
+    "wrist_flex": 87.34,
+    "wrist_roll": -2.51
    },
    "taught_on": "e4"
   },
   "k": {
-   "grasp_z_cm": 4.5,
-   "lean_deg": 0.0,
+   "grasp_z_cm": 2.93,
+   "lean_deg": 17.9,
    "open": null,
-   "close": 4.8,
+   "close": 11.8,
    "stall_min": 12,
    "height_cm": 6.0,
    "grasp_pose": {
-    "shoulder_pan": -22.42,
-    "shoulder_lift": 41.32,
-    "elbow_flex": 26.07,
-    "wrist_flex": 56.4,
-    "wrist_roll": -1.54
+    "shoulder_pan": -5.8,
+    "shoulder_lift": 91.08,
+    "elbow_flex": -35.38,
+    "wrist_flex": 87.25,
+    "wrist_roll": -2.51
    },
    "taught_on": "e4"
   }
@@ -115,28 +165,28 @@
  "slots": {
   "handover": {
    "pose": {
-    "shoulder_pan": 6.86,
-    "shoulder_lift": -45.71,
-    "elbow_flex": 82.95,
-    "wrist_flex": 49.36,
-    "wrist_roll": -1.36
+    "shoulder_pan": 36.22,
+    "shoulder_lift": 107.96,
+    "elbow_flex": -41.54,
+    "wrist_flex": 87.43,
+    "wrist_roll": -2.24
    },
    "uv": [
-    24.83,
-    20.22
+    28.47,
+    19.24
    ]
   },
   "feed": {
    "pose": {
-    "shoulder_pan": 6.86,
-    "shoulder_lift": -45.71,
-    "elbow_flex": 82.95,
-    "wrist_flex": 49.36,
-    "wrist_roll": -1.36
+    "shoulder_pan": -5.27,
+    "shoulder_lift": 102.15,
+    "elbow_flex": -44.53,
+    "wrist_flex": 87.34,
+    "wrist_roll": -2.33
    },
    "uv": [
-    24.83,
-    20.22
+    11.97,
+    10.13
    ]
   }
  },
@@ -146,7 +196,15 @@
   "place_drop_cm": 0.5,
   "grasp_default_cm": 1.4,
   "clearance_cm": 8.0,
-  "place_lean_deg": 0.0
+  "place_lean_deg": 0.0,
+  "place_offset_cm": [
+   0.6,
+   -1.7
+  ],
+  "pick_offset_cm": [
+   -0.5,
+   -0.3
+  ]
  },
  "probes": [],
  "vision": {
@@ -155,5 +213,5 @@
   "centre_frac": 0.6
  },
  "unreachable": [],
- "updated": "2026-09-15 20:37:58"
+ "updated": "2026-09-17 14:30:45"
 }

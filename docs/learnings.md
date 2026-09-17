@@ -267,3 +267,47 @@ Rules that now live in config: piece heights in `config/pieces.json`; `heights.c
 `carry_cm` = tallest piece + clearance (14 cm) — jaws 8 cm above the pieces before any sideways travel.
 Open question for the next attempt: confirm the hold with a camera before carrying (the wrist camera was
 not starting this session; the top camera needs the image corners taught to read a cell).
+
+## Second calibration, first complete Nf3 (2026-09-17, 14:20–14:40)
+
+Board moved out to ~17 cm (h1 centre from the shoulder axis), re-measured: **24 × 24 cm, 3 cm squares** (the
+29 cm in the config was wrong — `board.size_cm` and `config/pieces.json` now say 24/3). Corners and e4/d5
+taught with a vertical gripper, every piece grasp taught at its base.
+
+- **Result:** g1→f3 executed end to end on the first run after the refit: grasp held (jaws 7.7 on a knight
+  that closes to 7.2), carry at 14 cm, upright release. The knight landed on **f2**, one square short toward
+  the arm. `heights.place_offset_cm = [0, -1.0]` shifts every place point 1 cm away from the robot; to be
+  re-checked with the step-by-step mode before it is trusted.
+- **The gripper is 15.8 cm, not 11.** Fitting the tool length instead of fixing it at L3 took the corner
+  residual from 1.16 to 0.71 cm rms and the board-size disagreement from 2.7 to 1.1 cm. Rank-8 corners were
+  taught at 62° lean, e4/d5 at 10°, and a wrong tool length shows up exactly as a lean-dependent shift.
+  `gripper.tool_len_cm` is 15.8 pending a ruler measurement (wrist_flex axis → closed fingertips).
+- **Encoder wrap at rank 8.** Hand-driving to h8/a8 pushed shoulder_lift to 141°; the register range ends at
+  ~133° (4095 ticks) and the reading came back as −218.8°. The fit survived (trig is periodic) but the IK
+  rejected every rank-8 pose. Values unwrapped in chess.json; `limits.json` extends shoulder_lift to 133° and
+  elbow_flex to −86°, which gives hover on all 64 squares and grasp on 60 (a8 b8 g8 h8 stay out).
+- **Pick tilted, place upright.** The arm's model is accurate near the lean the corners were taught at, and
+  a piece released tilted falls over. `heights.place_lean_deg = 0` makes the place column as vertical as the
+  arm allows while the pick keeps the taught lean.
+- **Jaw opening ≤ 2.5 cm (gripper 22)** on 3 cm squares; 35 brushed the neighbour.
+- **Step mode** (`STEP=true scripts/chess.sh play`): the routine waits for `chess_confirm` before each
+  primitive and drops a top-camera still in `var/steps/`, so the operator can judge open / descend /
+  grasp / lift / carry / place one at a time and the miss is attributed to the right step.
+
+### Step-by-step Nf3, third run (14:46–14:54) — the knight stood on f3
+
+Offsets found one primitive at a time with the operator judging each pause:
+- pick: jaws 0.5 cm to the arm's right and 0.3 cm short of the g1 centre → `heights.pick_offset_cm = [-0.5, -0.3]`;
+- place: 1.2 cm short and 0.3 cm left at f3 → `heights.place_offset_cm = [0.3, -1.2]`, set by nudging the held
+  knight with a one-point `path` while the routine waited, then releasing.
+- At the f3 place pose (shoulder_lift ~92°, elbow −40°) the arm sags ~1 cm: commanded 3.3 cm, model reads 2.3.
+  Releasing there still set the knight down upright — the `place_drop_cm` 0.5 absorbed it.
+- Grasp signature for this knight: jaws taught closed at 7.2, hold settles at 7.7–7.9, an empty close reads ~1.
+- Restarting the daemon kills the routine and drops its `needs` — with a piece in the jaws. Finish by hand:
+  gripper goal to open, a straight `path` column up, then `rest`. `FROM=n scripts/chess.sh move …` now resumes a
+  move at step n instead of replaying everything (the arm must already be where step n−1 left it).
+
+**Method that worked:** step mode as the default way to debug (and to run) a move on hardware. One primitive
+per confirm, the operator states the offset they see ("0.3 cm forward, 0.5 cm left"), the offset goes into
+config, and the run resumes from the last good step. Two passes were enough to centre both the pick and the
+place; a full autonomous run comes after, never before.

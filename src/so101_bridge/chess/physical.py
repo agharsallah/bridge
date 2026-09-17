@@ -180,10 +180,13 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
             continue
 
         u, v = ws_mod.square_uv(d, a["sq"])
+        off = d["heights"].get(f"{a['op']}_offset_cm")   # pick/place [du, dv] cm: where the jaws really land vs the model
+        if off: u, v = u + float(off[0]), v + float(off[1])
         # a piece is picked at the lean it was taught at (where the model is accurate) but set down as upright
         # as the arm allows: released tilted, its base meets the board on one edge and it falls over
         if a["op"] == "place": lean = d["heights"].get("place_lean_deg", lean)
         z_top = _best_z(model, a["sq"], carry, z_grasp, lean)
+        at = lambda z: model.uv_to_pose(u, v, z, lean=_rad(lean), allow=allow)
         z_low = (z_grasp if a["op"] == "pick" else z_grasp + drop)
         if dry_run: z_low = z_top
         if z_top is None or z_top < _hover(d):
@@ -196,7 +199,7 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
             out.append({"op": "path", "points": pts, "speed": TRAVEL_SPEED, "label": f"carry to {where}",
                         **({"allow": allow} if allow else {})})
         else:
-            first = model.pose_for(a["sq"], z_top, lean)
+            first = at(z_top)
             if first is None: return None
             out.append({"op": "path", "points": [first], "speed": TRAVEL_SPEED, "label": f"to {where}",
                         **({"allow": allow} if allow else {})})
@@ -204,7 +207,7 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
         if a["op"] == "pick" and not dry_run:
             out.append({"op": "grip", "value": open_to, "label": f"open over {where}"})
         # 3) straight down, close or release, straight back up
-        down = _column(model, d, a["sq"], z_top, z_low, lean, zcorr)
+        down = _column(at, u, v, z_top, z_low, zcorr)
         if down is None: log(f"chess: cannot descend on {a['sq']}"); return None
         if down: out.append({"op": "path", "points": down, "speed": DESCEND_SPEED, "label": f"down on {where}",
                              **({"allow": allow} if allow else {})})
@@ -215,26 +218,25 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
                         # the jaws went and at what lean — the lean the IK really used, not the taught one
                         "record": {"kind": "grasp" if a["op"] == "pick" else "place", "piece": piece,
                                    "square": a["sq"], "slot": None, "z_cm": round(z_low, 2),
-                                   "lean_deg": model.lean_of(down[-1]) if down else model.lean_of(
-                                       model.pose_for(a["sq"], z_low, lean))},
+                                   "lean_deg": model.lean_of(down[-1] if down else at(z_low))},
                         **({"expect_min": _stall_min(d, piece)} if a["op"] == "pick" else {})})
             out.append({"op": "dwell", "seconds": 0.2, "label": "settle"})
-        up = _column(model, d, a["sq"], z_low, z_top, lean, zcorr)
+        up = _column(at, u, v, z_low, z_top, zcorr)
         if up: out.append({"op": "path", "points": up, "speed": DESCEND_SPEED, "label": f"lift from {where}",
                            **({"allow": allow} if allow else {})})
         cur_uv, cur_z = (u, v), z_top
     return out
 
 
-def _column(model, d, square, z_from, z_to, lean, zcorr):
-    """Poses straight up or down over one square between two heights, ~0.5 cm apart. [] if there is nothing to do."""
+def _column(at, u, v, z_from, z_to, zcorr):
+    """Poses straight up or down over one point between two heights, ~0.5 cm apart. [] if there is nothing to do.
+    ``at(z)`` is the IK for that point at height z (or None)."""
     if abs(z_to - z_from) < 1e-6: return []
     n = max(1, int(round(abs(z_to - z_from) / Z_SEARCH_STEP_CM)))
-    u, v = ws_mod.square_uv(d, square)
     out = []
     for k in range(1, n + 1):
         z = z_from + (z_to - z_from) * k / n
-        pose = model.pose_for(square, z + zcorr(u, v), lean)
+        pose = at(z + zcorr(u, v))
         if pose is None: return None
         out.append(pose)
     return out

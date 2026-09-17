@@ -13,7 +13,7 @@
 #   scripts/chess.sh play                  # start/resume the game loop
 #   scripts/chess.sh wait                  # block until it is the LLM's turn (or the game ends)
 #   scripts/chess.sh state                 # the game document the LLM reads (~300 bytes)
-#   scripts/chess.sh move e7e5             # play that move (robot executes it if it is the robot's side)
+#   scripts/chess.sh move e7e5             # play that move (robot executes it if it is the robot's side; FROM=n resumes at step n)
 #   scripts/chess.sh confirm               # "yes, that is what I played" / "I fixed the board"
 #   scripts/chess.sh abort                 # stop the routine, hold position
 #   scripts/chess.sh reference             # capture the EMPTY board - every camera reading is a diff from it
@@ -47,9 +47,9 @@ case "$cmd" in
   goto)    send "{\"action\":\"chess_goto\",\"square\":\"${2:?usage: chess.sh goto <square> [z_cm]}\",\"z\":${3:-6}}" ;;
   setup)   send "{\"action\":\"chess_setup\",\"dry\":${DRY:-false}}" ;;
   new)     send "{\"action\":\"chess_new\",\"players\":{\"white\":\"${2:-human}\",\"black\":\"${3:-llm}\"}}"; sleep 0.5; tail -1 var/bridge.log ;;
-  play)    send "{\"action\":\"chess_play\",\"dry\":${DRY:-false}}" ;;
+  play)    send "{\"action\":\"chess_play\",\"dry\":${DRY:-false},\"step\":${STEP:-false}}" ;;
   puzzle)  send "{\"action\":\"chess_puzzle\",\"puzzle\":\"${2:?usage: chess.sh puzzle <name>}\"}" ;;
-  move)    send "{\"action\":\"chess_move\",\"move\":\"${2:?usage: chess.sh move <uci>, e.g. e2e4}\"}" ;;
+  move)    send "{\"action\":\"chess_move\",\"move\":\"${2:?usage: chess.sh move <uci>, e.g. e2e4}\",\"from_step\":${FROM:-0}}" ;;
   confirm) send '{"action":"chess_confirm"}' ;;
   abort)   send '{"action":"abort"}' ;;
   reference) send '{"action":"chess_reference"}'; sleep 0.6; tail -1 var/bridge.log ;;

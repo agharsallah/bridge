@@ -15,6 +15,7 @@ from .settings import (
     CAM_H,
     CAM_MAX_AGE_MS,
     CAM_RETRY_S,
+    CAM_SIZE,
     CAM_W,
     CAMS,
     JOINTS,
@@ -54,7 +55,9 @@ def connect(attempts: int = 5):
     all. A detached camera is retried in the background and joins the running bridge when it comes back.
     """
     OpenCVCameraConfig, SOFollowerRobotConfig, QuietFollower = _lerobot()
-    cams = {n: OpenCVCameraConfig(index_or_path=i, fps=CAM_FPS, width=CAM_W, height=CAM_H, fourcc=CAM_FOURCC)
+    cams = {n: OpenCVCameraConfig(index_or_path=i, fps=CAM_FPS, fourcc=CAM_FOURCC,
+                                  width=CAM_SIZE.get(n, (CAM_W, CAM_H))[0],
+                                  height=CAM_SIZE.get(n, (CAM_W, CAM_H))[1])
             for n, i in CAMS.items()}
     cfg = SOFollowerRobotConfig(port=PORT, id=ROBOT_ID, cameras=cams, disable_torque_on_disconnect=False,
                                 max_relative_target=5.0)
