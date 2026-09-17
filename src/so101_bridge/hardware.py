@@ -59,6 +59,7 @@ def connect(attempts: int = 5):
                                   width=CAM_SIZE.get(n, (CAM_W, CAM_H))[0],
                                   height=CAM_SIZE.get(n, (CAM_W, CAM_H))[1])
             for n, i in CAMS.items()}
+    _CAM_CFG.update(cams)
     cfg = SOFollowerRobotConfig(port=PORT, id=ROBOT_ID, cameras=cams, disable_torque_on_disconnect=False,
                                 max_relative_target=5.0)
     robot = QuietFollower(cfg)
@@ -95,6 +96,10 @@ def configure_motors(robot):
 
 # ------------------------------------------------------------------------------- reading the arm and the cameras
 _CAM = {}   # per camera: the object, when it went quiet, when to try it next, whether a retry is running
+_STRIKES = {}   # per camera: consecutive missed reads, reset by the first good frame
+_CAM_CFG = {}   # per camera: the config it was built from, so a dead one can be rebuilt rather than reopened
+CAM_STRIKES = 3   # consecutive missed frames before a camera is detached — one hiccup must not cost the session
+CAM_REOPEN_WARMUP_S = 4   # how long a rebuilt camera may take to deliver its first frame (default 1 s is too short after a USB drop)
 
 
 def read_observation(robot):
@@ -122,15 +127,25 @@ def camera_status():
 
 
 def _frame(robot, name):
+    """The newest frame, or None. A camera is only given up on after CAM_STRIKES misses in a row.
+
+    A single miss is normal — the wrist camera's cable is on a moving arm — and detaching costs the whole
+    session, because lerobot's read loop spins on a broken capture session and never recovers by itself.
+    """
     cam = robot.cameras[name]
     try:
         frame = cam.read_latest(max_age_ms=CAM_MAX_AGE_MS)
     except Exception as e:
+        strikes = _STRIKES.get(name, 0) + 1
+        _STRIKES[name] = strikes
+        if strikes < CAM_STRIKES:
+            return None                             # a hiccup: keep the camera, the next read usually lands
         st = _CAM.setdefault(name, {"cam": cam, "since": None, "next_try": 0.0, "reopening": False})
         st.update(cam=cam, since=time.time(), next_try=time.time() + CAM_RETRY_S)
         robot.cameras.pop(name, None)                # detached: is_connected stays true, the arm keeps moving
-        log(f"camera {name}: no frames ({e}) — detached, the bridge runs without it and keeps retrying")
+        log(f"camera {name}: no frames after {strikes} tries ({e}) — detached, the bridge keeps retrying")
         return None
+    _STRIKES.pop(name, None)
     if name in _CAM: _CAM.pop(name, None)
     return frame
 
@@ -140,7 +155,7 @@ def _attach(robot, name, cam):
     try:
         if not cam.is_connected: cam.connect()
         robot.cameras[name] = cam
-        _CAM.pop(name, None)
+        _CAM.pop(name, None); _STRIKES.pop(name, None)
         log(f"camera {name}: connected")
         return True
     except Exception as e:
@@ -151,6 +166,37 @@ def _attach(robot, name, cam):
         return False
 
 
+def _release(cam):
+    """Let go of the device completely: lerobot's disconnect() leaves the VideoCapture for the GC."""
+    try: cam.disconnect()
+    except Exception: pass
+    vc = getattr(cam, "videocapture", None)
+    if vc is not None:
+        try: vc.release()
+        except Exception: pass
+        cam.videocapture = None
+
+
+def _rebuild(name):
+    """A brand-new camera object from the stored config, or None if it cannot be built.
+
+    Reopening the *same* object is what never came back: once its capture session is broken, connect()
+    re-warms against the dead session and times out every time. A fresh object opens cleanly — a plain
+    VideoCapture on the same index delivers full frame rate while the other camera streams.
+    """
+    cfg = _CAM_CFG.get(name)
+    if cfg is None: return None
+    try:
+        import dataclasses
+        from lerobot.cameras.opencv import OpenCVCamera
+        # A camera that fell off USB and came back is enumerated again before AVFoundation will stream
+        # from it: the first frame can take a few seconds, and lerobot's default 1 s warmup gives up first.
+        return OpenCVCamera(dataclasses.replace(cfg, warmup_s=CAM_REOPEN_WARMUP_S))
+    except Exception as e:
+        log(f"camera {name}: could not rebuild ({e})")
+        return None
+
+
 def _retry(robot, name, st):
     """Reopen a detached camera on its own thread — connect() blocks for seconds and the loop may not."""
     if st["reopening"] or time.time() < st["next_try"]: return
@@ -159,9 +205,8 @@ def _retry(robot, name, st):
     def work():
         down = time.time() - (st["since"] or time.time())
         try:
-            try: st["cam"].disconnect()
-            except Exception: pass
-            if _attach(robot, name, st["cam"]):
+            _release(st["cam"])
+            if _attach(robot, name, _rebuild(name) or st["cam"]):
                 log(f"camera {name}: back after {down:.0f} s")
         except Exception as e:
             log(f"camera {name}: retry failed: {e}")
