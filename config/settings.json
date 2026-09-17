@@ -7,5 +7,7 @@
  "P_GAIN": {
   "elbow_flex": 48,
   "shoulder_lift": 48
- }
+ },
+ "CHESS_AUTO_TRIGGER": true,
+ "CHESS_POLL_S": 1.0
 }

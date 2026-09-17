@@ -88,7 +88,7 @@ def test_the_occupancy_threshold_is_refit_from_a_position_we_know():
     truth = rules.occupancy(board)
     f = feats({s: (40.0 if v else 3.0) for s, v in truth.items()})
     t = cv.fit_threshold(f, truth)
-    assert t == pytest.approx(21.5, abs=0.5)
+    assert t["dark"] == pytest.approx(21.5, abs=0.5) and t["light"] == pytest.approx(21.5, abs=0.5)   # one per square colour
     assert cv.occupancy(f, t) == truth
 
 

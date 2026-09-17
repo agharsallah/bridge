@@ -118,6 +118,15 @@ def chess_command(ctrl, act, c, limits, present):
             pts = [{j: present[j] + (pose[j] - present[j]) * k / n for j in pose} for k in range(1, n + 1)]
             log(f"chess_goto: {c['square']} z={z} cm -> { {k: round(v, 1) for k, v in pose.items()} } in {n} steps")
             ctrl.request({"action": "path", "points": pts, "speed": float(c.get("speed", 4.0)), "src": "file"})
+    elif act == "chess_grid":                      # EMPTY board: find the 7x7 inner corners, store the four corner-square centres
+        from .chess import vision as chess_vision
+        d = chess_ws.load()
+        frame = ctrl.latest_frame(c.get("cam") or d["board"].get("cam") or CHESS_CAM)
+        if frame is None: log("chess: no frame from that camera yet"); return
+        corners = chess_vision.auto_image_corners(frame, d)
+        if corners is None: log("chess: no chessboard grid found — is the board empty and fully in view?"); return
+        chess_ws.set_image_corners(corners); ctrl.chess_reader = None
+        log(f"chess: image corners from the detected grid: {corners} — check /chess/warp.jpg, then chess_reference")
     elif act == "chess_reference":                 # capture the EMPTY board: every reading is a diff from it
         from .chess import vision as chess_vision
         d = chess_ws.load()
@@ -125,6 +134,15 @@ def chess_command(ctrl, act, c, limits, present):
         if frame is None: log("chess: no frame from that camera yet"); return
         reader = chess_vision.BoardReader(d)
         if not reader.ok: log(f"chess: {reader.error()}"); return
+        if c.get("from_position"):                 # pieces are on the board: synthesize the empty board from the known position
+            glog = GameLog.latest()
+            if glog is None: log("chess: no game to take the position from"); return
+            if not reader.set_reference_from_position(frame, glog.board()): log("chess: could not synthesize the reference"); return
+            read = reader.read(frame)
+            if read: reader.calibrate(read["features"], glog.board())
+            ctrl.chess_reader = reader
+            log(f"chess: reference synthesized from the position of game {glog.id} — occupancy readings are live")
+            return
         if not reader.set_reference(frame): log("chess: could not warp the board"); return
         ctrl.chess_reader = reader
         log("chess: empty-board reference captured — occupancy readings are live from now on")

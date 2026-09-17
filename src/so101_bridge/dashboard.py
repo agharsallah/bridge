@@ -169,7 +169,11 @@ def chess_camera_view(ctrl, d, fen):
     ``None`` until the image corners are taught and an empty-board reference has been captured — the
     page says which of the two is missing rather than showing an empty grid."""
     reader = getattr(ctrl, "chess_reader", None)
-    if reader is None or not reader.ok:
+    if reader is None:                                   # corners and the reference persist: rebuild after a restart
+        from .chess import vision as cvis
+        reader = cvis.BoardReader(d)
+        if reader.ok: ctrl.chess_reader = reader
+    if not reader.ok:
         return {"ok": False, "why": "the board's image corners have not been taught — click them on the view above"}
     if reader.reference is None:
         return {"ok": False, "why": "no empty-board reference yet — clear the board and press Capture empty board"}
@@ -213,9 +217,8 @@ def chess_overlay(ctrl, cam):
             cv2.putText(img, n, (x + 9, y - 9), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
     if len(pts) == 4:
         cv2.polylines(img, [np.array(pts, np.int32)], True, (0, 200, 255), 2)
-    h = img.shape[0]
-    scale = 720.0 / h if h > 720 else 1.0
-    if scale != 1.0: img = cv2.resize(img, None, fx=scale, fy=scale)
+    # Served at the raw frame's own size on purpose: the page teaches the image corners by clicking this
+    # stream and reports them in its natural pixels, which are the pixels homography() warps.
     ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
     return buf.tobytes() if ok else None
 

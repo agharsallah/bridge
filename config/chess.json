@@ -55,7 +55,24 @@
     }
    }
   ],
-  "image_corners": {},
+  "image_corners": {
+   "a1": [
+    1009.9,
+    641.4
+   ],
+   "h1": [
+    1470.2,
+    638.6
+   ],
+   "h8": [
+    1406.2,
+    271.4
+   ],
+   "a8": [
+    1011.5,
+    253.7
+   ]
+  },
   "reach": {}
  },
  "gripper": {
@@ -210,8 +227,9 @@
  "vision": {
   "occ_threshold": null,
   "warp_px": 512,
-  "centre_frac": 0.6
+  "centre_frac": 0.6,
+  "reference": "chess_reference.png"
  },
  "unreachable": [],
- "updated": "2026-09-17 14:30:45"
+ "updated": "2026-09-17 15:43:41"
 }

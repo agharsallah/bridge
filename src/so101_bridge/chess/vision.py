@@ -28,7 +28,7 @@ from . import workspace as ws_mod
 
 WARP_PX = 512                  # canonical warped board: 8 cells of WARP_PX/8
 CENTRE_FRAC = 0.6              # fraction of a cell used for its features — ignores the neighbours' shadows
-OCC_MIN_SEPARATION = 8.0       # empty and occupied clusters must differ by this much for a fitted threshold
+OCC_MIN_SEPARATION = 2.5       # empty and occupied clusters (per square colour) must differ by this much for a fitted threshold
 OCC_FALLBACK = 18.0            # mean absolute difference that counts as "occupied" before anything is calibrated
 MAX_CHANGED_SQUARES = 4        # a legal move changes at most 4 squares (castling); more means something fell over
 
@@ -80,6 +80,32 @@ def find_grid(frame):
     return corners.reshape(7, 7, 2)
 
 
+def auto_image_corners(frame, d):
+    """The four corner-square centres from an EMPTY board in ``frame``, as ``{"a1": [x, y], ...}`` or None.
+
+    Orientation: each corner is matched to the nearest previously taught image corner when there is one,
+    otherwise a1 is taken as the bottom-left of the four in the image (the robot sits at the bottom edge,
+    white on its side) — the operator checks /chess/warp.jpg either way."""
+    g = find_grid(frame)
+    if g is None: return None
+    g = np.asarray(g, dtype=float)
+    def centre(i, j, di, dj):
+        p = g[i, j]; return p - 0.5 * (g[i + di, j] - p) - 0.5 * (g[i, j + dj] - p)
+    cands = [centre(0, 0, 1, 1), centre(0, 6, 1, -1), centre(6, 6, -1, -1), centre(6, 0, -1, 1)]
+    prev = d["board"].get("image_corners") or {}
+    if all(n in prev for n in ws_mod.CORNERS):
+        guess = {n: np.asarray(prev[n], dtype=float) for n in ws_mod.CORNERS}
+    else:
+        xs, ys = [c[0] for c in cands], [c[1] for c in cands]; cx, cy = sum(xs) / 4, sum(ys) / 4
+        guess = {"a1": (cx - 1, cy + 1), "h1": (cx + 1, cy + 1), "h8": (cx + 1, cy - 1), "a8": (cx - 1, cy - 1)}
+        cands = [np.asarray(c) for c in cands]
+    out, used = {}, set()
+    for name in ws_mod.CORNERS:
+        k = min((k for k in range(4) if k not in used), key=lambda k: float(np.hypot(*(np.asarray(cands[k]) - np.asarray(guess[name])))))
+        used.add(k); out[name] = [round(float(cands[k][0]), 1), round(float(cands[k][1]), 1)]
+    return out
+
+
 def corners_from_grid(grid):
     """The four board-corner square centres extrapolated from a detected 7x7 inner-corner grid.
 
@@ -120,6 +146,23 @@ def square_names(d, px=WARP_PX):
     return {(r, c): ws_mod.uv_square(d, c * pitch, r * pitch) for r in range(8) for c in range(8)}
 
 
+def _match_exposure(gray, ref):
+    """Map the frame's brightness onto the reference's before differencing.
+
+    The camera re-exposes when pieces arrive, and a global gain change reads as a 30–60 difference on
+    every empty square. The board's own two tones are the calibration target: the median of the pixels
+    that are dark in the reference and the median of those that are light, in both images, give a linear
+    map. Medians ignore the pieces, which cover well under half of either tone."""
+    r = ref.astype(np.float32); g = gray.astype(np.float32)
+    dark, light = r < np.percentile(r, 40), r > np.percentile(r, 60)
+    if not dark.any() or not light.any(): return gray
+    rd, rl = float(np.median(r[dark])), float(np.median(r[light]))
+    gd, gl = float(np.median(g[dark])), float(np.median(g[light]))
+    if abs(gl - gd) < 1.0 or abs(rl - rd) < 1.0: return gray
+    a = (rl - rd) / (gl - gd); b = rd - a * gd
+    return np.clip(a * g + b, 0, 255).astype(np.uint8)
+
+
 def features(warped, d, reference=None):
     """Per square: ``{"diff", "edges", "luma"}``.
 
@@ -134,6 +177,7 @@ def features(warped, d, reference=None):
     if reference is not None:
         ref = cv2.cvtColor(reference, cv2.COLOR_BGR2GRAY) if reference.ndim == 3 else reference
         if ref.shape != gray.shape: ref = cv2.resize(ref, (gray.shape[1], gray.shape[0]))
+        gray = _match_exposure(gray, ref)
     edges = cv2.Canny(gray, 60, 160)
     names = square_names(d, px)
     out = {}
@@ -152,23 +196,41 @@ def features(warped, d, reference=None):
     return out
 
 
+def _tone(square):
+    """'dark' or 'light': the square's own colour. a1 is dark."""
+    f, r = ws_mod.parse_square(square)
+    return "dark" if (f + r) % 2 == 1 else "light"
+
+
+def _thresholds(threshold):
+    """The threshold may be one number (legacy) or ``{"dark": t, "light": t}`` — a black piece on a dark
+    square differs far less from the empty square than anything on a light square does."""
+    if threshold is None: return {"dark": OCC_FALLBACK, "light": OCC_FALLBACK}
+    if isinstance(threshold, dict): return {k: float(threshold.get(k, OCC_FALLBACK)) for k in ("dark", "light")}
+    return {"dark": float(threshold), "light": float(threshold)}
+
+
 def occupancy(feats, threshold=None):
-    """{square: bool} from the per-square difference, at a fitted or fallback threshold."""
-    t = OCC_FALLBACK if threshold is None else float(threshold)
-    return {s: f["diff"] >= t for s, f in feats.items()}
+    """{square: bool} from the per-square difference, at the fitted (per square colour) or fallback threshold."""
+    t = _thresholds(threshold)
+    return {s: f["diff"] >= t[_tone(s)] for s, f in feats.items()}
 
 
 def fit_threshold(feats, known_occ):
-    """Refit the occupancy threshold from a position whose truth is known — the midpoint between the
-    occupied and empty clusters. Returns None when the two clusters are not separated enough to trust."""
-    occ = [feats[s]["diff"] for s, v in known_occ.items() if v and s in feats]
-    emp = [feats[s]["diff"] for s, v in known_occ.items() if not v and s in feats]
-    if len(occ) < 4 or len(emp) < 4: return None
-    lo, hi = float(np.percentile(emp, 90)), float(np.percentile(occ, 10))
-    if hi - lo < OCC_MIN_SEPARATION:
-        log(f"chess: occupancy clusters overlap (empty<={lo:.1f}, occupied>={hi:.1f}) — threshold not updated")
-        return None
-    return round((lo + hi) / 2.0, 2)
+    """Refit the occupancy thresholds, one per square colour, from a position whose truth is known — the
+    midpoint between the occupied and empty clusters of that colour. None when either colour's clusters
+    are not separated enough to trust."""
+    out = {}
+    for tone in ("dark", "light"):
+        occ = [feats[s]["diff"] for s, v in known_occ.items() if v and s in feats and _tone(s) == tone]
+        emp = [feats[s]["diff"] for s, v in known_occ.items() if not v and s in feats and _tone(s) == tone]
+        if len(occ) < 3 or len(emp) < 3: return None
+        lo, hi = float(np.percentile(emp, 90)), float(np.percentile(occ, 10))
+        if hi - lo < OCC_MIN_SEPARATION:
+            log(f"chess: {tone} squares: occupancy clusters overlap (empty<={lo:.1f}, occupied>={hi:.1f}) — threshold not updated")
+            return None
+        out[tone] = round((lo + hi) / 2.0, 2)
+    return out
 
 
 def piece_colours(feats, occ, light_dark=None):
@@ -232,6 +294,24 @@ class BoardReader:
         self.threshold = d["vision"].get("occ_threshold")
         self.light_dark = d["vision"].get("light_dark")
         self.history = []
+        self._load_reference()
+
+    # the empty-board reference survives a daemon restart: it is a picture, so it lives in var/, not in the config
+    def _ref_path(self):
+        from ..paths import VAR_DIR
+        return VAR_DIR / "chess_reference.png"
+
+    def _load_reference(self):
+        cv2 = _cv2(); path = self._ref_path()
+        if self.H is None or not self.d["vision"].get("reference") or not path.is_file(): return
+        img = cv2.imread(str(path))
+        if img is not None and img.shape[0] == self.px: self.reference = img
+
+    def _save_reference(self):
+        try:
+            _cv2().imwrite(str(self._ref_path()), self.reference)
+            d = ws_mod.load(); d["vision"]["reference"] = self._ref_path().name; ws_mod.save(d)   # the config says one exists
+        except Exception as e: log(f"chess: could not save the reference: {e}")
 
     @property
     def ok(self):
@@ -246,6 +326,34 @@ class BoardReader:
         """Capture the empty board. Everything downstream is a difference from this."""
         if self.H is None: return False
         self.reference = warp(frame, self.H, self.px)
+        self._save_reference()
+        return True
+
+    def set_reference_from_position(self, frame, board):
+        """Synthesize the empty board from a frame of a KNOWN position, so a game can start with pieces on.
+
+        Every occupied cell is painted over with the median of the empty cells of the same colour (the
+        board pattern is regular, so an empty light square looks like every other empty light square).
+        Cells that were occupied get a slightly blurrier reference than a real capture would; the
+        threshold is refitted from the same known position right after (``calibrate``)."""
+        if self.H is None: return False
+        import numpy as np, chess
+        w = warp(frame, self.H, self.px); cell = self.px // 8
+        names = square_names(self.d, self.px)
+        empties = {0: [], 1: []}
+        for (r, c), name in names.items():
+            sq = chess.parse_square(name)
+            if board.piece_at(sq) is None:
+                empties[(chess.square_file(sq) + chess.square_rank(sq)) % 2].append(w[r * cell:(r + 1) * cell, c * cell:(c + 1) * cell])
+        if not empties[0] or not empties[1]: return False
+        fill = {k: np.median(np.stack(v), axis=0).astype(w.dtype) for k, v in empties.items()}
+        ref = w.copy()
+        for (r, c), name in names.items():
+            sq = chess.parse_square(name)
+            if board.piece_at(sq) is not None:
+                ref[r * cell:(r + 1) * cell, c * cell:(c + 1) * cell] = fill[(chess.square_file(sq) + chess.square_rank(sq)) % 2]
+        self.reference = ref
+        self._save_reference()
         return True
 
     def read(self, frame):

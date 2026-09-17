@@ -16,7 +16,8 @@
 #   scripts/chess.sh move e7e5             # play that move (robot executes it if it is the robot's side; FROM=n resumes at step n)
 #   scripts/chess.sh confirm               # "yes, that is what I played" / "I fixed the board"
 #   scripts/chess.sh abort                 # stop the routine, hold position
-#   scripts/chess.sh reference             # capture the EMPTY board - every camera reading is a diff from it
+#   scripts/chess.sh grid                  # EMPTY board: detect the squares in the camera, store the image corners
+#   scripts/chess.sh reference             # capture the EMPTY board - every camera reading is a diff from it (FROM_POSITION=true: synthesize it from the current game's position)
 #   scripts/chess.sh learned               # what the history says: grasp success, bad squares, suggestions
 #   scripts/chess.sh apply <id>            # apply one suggestion to config/chess.json
 #
@@ -52,7 +53,8 @@ case "$cmd" in
   move)    send "{\"action\":\"chess_move\",\"move\":\"${2:?usage: chess.sh move <uci>, e.g. e2e4}\",\"from_step\":${FROM:-0}}" ;;
   confirm) send '{"action":"chess_confirm"}' ;;
   abort)   send '{"action":"abort"}' ;;
-  reference) send '{"action":"chess_reference"}'; sleep 0.6; tail -1 var/bridge.log ;;
+  grid)    send '{"action":"chess_grid"}'; sleep 0.8; tail -1 var/bridge.log ;;
+  reference) send "{\"action\":\"chess_reference\",\"from_position\":${FROM_POSITION:-false}}"; sleep 0.6; tail -1 var/bridge.log ;;
   learned) exec python3 scripts/chess_learned.py ;;
   apply)   send "{\"action\":\"chess_apply\",\"id\":\"${2:?usage: chess.sh apply <suggestion-id>}\"}"; sleep 0.6; tail -2 var/bridge.log ;;
   state)   state ;;

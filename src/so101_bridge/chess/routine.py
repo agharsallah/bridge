@@ -153,7 +153,7 @@ def _reader(ctrl, d, board=None):
     if frame is None:
         log(f"chess: no frame from camera {d['board'].get('cam')!r} — playing without the camera")
         return None
-    if not r.set_reference(frame):
+    if r.reference is None and not r.set_reference(frame):   # a persisted reference wins: the board is not empty mid-game
         return None
     if board is not None:
         read = r.read(frame)
