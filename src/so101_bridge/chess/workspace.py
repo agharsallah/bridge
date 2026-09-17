@@ -4,7 +4,9 @@
       "board": {"size_cm": 29.0, "robot_side": "white", "cam": "top",
                 "corners": {"a1": pose, "h1": pose, "h8": pose, "a8": pose},   # FINGERTIPS on the square CENTRE
                 "extra": [{"square": "e4", "pose": pose}],                     # more contacts = a better fit
-                "image_corners": {"a1": [x, y], ...}},                         # same four squares in the camera frame
+                "image_corners": {"a1": [x, y], ...},                          # same four squares in the camera frame
+                "reach": {"e1": {"pose": pose,                                 # driven there by hand, see below
+                                 "allow": {"wrist_flex": [-83.8, 89.8]}}}},
       "gripper": {"tool_len_cm": 11.0, "open": 60, "close": 8, "max_lean_deg": 45},
       "pieces": {"p": {"grasp_z_cm": 1.4, "lean_deg": 12, "close": 8, "stall_min": 12}, ... , "k": {...}},
       "slots": {"feed": {"pose": pose, "uv": [u, v]}, "handover": {...}, "reserve": {...}},
@@ -22,7 +24,8 @@ and flips the mapping so the near rank is always the robot's own. Nothing else i
 know the board's orientation.
 """
 
-from ..paths import CHESS_FILE
+
+from ..paths import CHESS_FILE, PIECES_FILE
 from ..shared.store import get_path, load_json, pose_round, save_json, set_path
 from ..util import log
 
@@ -33,9 +36,11 @@ PIECE_NAMES = {"p": "pawn", "n": "knight", "b": "bishop", "r": "rook", "q": "que
 SIDES = ("white", "black")
 
 PIECE_DEFAULTS = {"grasp_z_cm": None,       # None = fall back to heights.grasp_default_cm (nothing taught yet)
-                  "lean_deg": None, "open": None, "close": None, "stall_min": 12}
+                  "lean_deg": None, "open": None, "close": None, "stall_min": 12,
+                  "height_cm": None}        # how tall the piece stands; the tallest one sets the carry height
 DEFAULTS = {
-    "board": {"size_cm": 29.0, "robot_side": "white", "cam": "top", "corners": {}, "extra": [], "image_corners": {}},
+    "board": {"size_cm": 29.0, "robot_side": "white", "cam": "top", "corners": {}, "extra": [], "image_corners": {},
+              "reach": {}},   # squares the operator reached by hand: {"e1": {"pose", "allow", "lean_deg"}}
     "gripper": {"tool_len_cm": 11.0,        # wrist axis -> jaw centre; measure it in P0 and correct this
                 "open": 60.0, "close": 8.0, "max_lean_deg": 45.0},
     "pieces": {p: dict(PIECE_DEFAULTS) for p in PIECES},
@@ -50,6 +55,9 @@ DEFAULTS = {
 def load():
     d = load_json(CHESS_FILE, DEFAULTS)
     d["pieces"] = {p: {**PIECE_DEFAULTS, **d.get("pieces", {}).get(p, {})} for p in PIECES}
+    heights = load_json(PIECES_FILE, {}).get("height_cm", {})      # the set's dimensions live in config/pieces.json
+    for p in PIECES:
+        if d["pieces"][p].get("height_cm") is None and heights.get(p) is not None: d["pieces"][p]["height_cm"] = float(heights[p])
     if d["board"].get("robot_side") not in SIDES: d["board"]["robot_side"] = "white"
     return d
 
@@ -230,6 +238,8 @@ def on_teach(cfg, step, record, ctrl):
         set_path(cfg, step["to"], target)
         log(f"chess: grasp {step['id']} -> z {target['grasp_z_cm']} cm, lean {target['lean_deg']} deg "
             f"(marked at u {u:.1f} v {v:.1f} cm)")
+    elif step.get("reach"):
+        _reach_note(cfg, step["reach"], (record or {}).get("pose"), ctrl)
     elif kind in ("contact", "pose") and step.get("slot"):
         from .kinematics import GripperModel
         st, _ = ctrl.snapshot()
@@ -237,6 +247,100 @@ def on_teach(cfg, step, record, ctrl):
         if model.ok:
             u, v, _ = model.pose_to_uv(record)
             cfg["slots"].setdefault(step["slot"], {})["uv"] = [round(u, 2), round(v, 2)]
+
+
+def _model(cfg, ctrl):
+    from .kinematics import GripperModel
+    st, _ = ctrl.snapshot()
+    return GripperModel(ctrl.floor, cfg, st.get("limits") or {}), (st.get("limits") or {})
+
+
+def teach_extra_steps(cfg, ctrl):
+    """One more step per square the fitted model says it cannot reach.
+
+    ``--`` in the reachability report is a claim about the *soft limits*, not about the arm: near the
+    base the jaws need more wrist_flex than the calibration sweep allows, and the operator can usually
+    put the fingertips there by hand. So the session ends by asking them to try. What comes back is
+    either a pose that proves the square is serviceable — and says exactly which limit stands in the
+    way — or a Skip, which is the honest answer that it really is out of reach.
+    """
+    model, _ = _model(cfg, ctrl)
+    if not model.ok: return []
+    z = float(cfg["heights"].get("grasp_default_cm", 1.4))
+    out = []
+    for sq in squares(cfg):
+        if model.pose_for(sq, z) is not None: continue
+        out.append({"id": f"reach_{sq}", "kind": "contact", "reach": sq,
+                    "append": "board.extra", "match": "square", "with": {"square": sq, "reach": True},
+                    "prompt": f"The model cannot put the jaws on {sq.upper()} at grasp height. Free-drive the "
+                              f"closed fingertips onto the CENTRE of {sq.upper()} and press Done — or Skip if "
+                              f"the arm really will not go there."})
+    return out
+
+
+def _reach_note(cfg, square, pose, ctrl):
+    """Record what the operator just proved about one square.
+
+    The soft limits come off the calibration sweep and stay as they are — they are right for the arm in
+    general. What a reach step adds is local and evidence-backed: at *this* square the fingertips really
+    were here, so the joints this pose needs are allowed at this square and nowhere else. It is written
+    to chess.json, not to config/limits.json, and it changes no motor register: the control loop takes
+    the allowance with the command and still caps it at the motor's own sweep.
+    """
+    if not pose: return
+    from ..hardware import hard_limits
+    model, limits = _model(cfg, ctrl)
+    hard = hard_limits()
+    allow, clamp = {}, {}
+    for j, val in pose.items():
+        lo, hi = (limits.get(j) or [None, None])[:2]
+        if lo is None or lo <= val <= hi: continue
+        allow[j] = [round(val, 1), round(hi, 1)] if val < lo else [round(lo, 1), round(val, 1)]
+        hlo, hhi = (hard.get(j) or [val, val])[:2]
+        if not hlo <= val <= hhi:
+            # free-driving goes there, commanding it does not: the motor's own position registers stop
+            # short. The allowance is kept — the move is simply served as far as the motors go.
+            clamp[j] = [round(val, 1), round(hlo, 1), round(hhi, 1)]
+    entry = {"pose": pose_round(pose), "allow": allow,
+             "lean_deg": model.lean_of(pose) if model.ok else None}
+    if clamp: entry["clamped_by_motors"] = clamp
+    cfg["board"].setdefault("reach", {})[square] = entry
+    if clamp:
+        what = ", ".join(f"{j} {v[0]} vs motor range {v[1]}..{v[2]}" for j, v in clamp.items())
+        log(f"chess: {square} recorded, but WATCH IT: {what} — free-driving reaches that pose, commanding it "
+            f"does not, so the motor registers will clamp the move short and the jaws land off {square}. "
+            f"Lifting the clamp means editing config/limits.json and restarting.")
+    elif allow:
+        what = ", ".join(f"{j} to {v[1] if abs(v[1]) > abs(v[0]) else v[0]}" for j, v in allow.items())
+        log(f"chess: {square} reached by hand past the soft limit ({what}, lean {entry['lean_deg']} deg) — "
+            f"recorded in chess.json; that range is now allowed on {square} alone")
+    else:
+        log(f"chess: {square} reached by hand inside the soft limits (lean {entry['lean_deg']} deg) — "
+            f"the taught pose is stored as the contact for that square")
+
+
+def reach_allow(d, square):
+    """The per-joint range ``square`` may use instead of the soft limit, or None. See :func:`_reach_note`."""
+    entry = (d["board"].get("reach") or {}).get(str(square).lower())
+    return (entry or {}).get("allow") or None
+
+
+def reach_pose(d, square):
+    """The pose the operator drove to on ``square``, or None."""
+    entry = (d["board"].get("reach") or {}).get(str(square).lower())
+    return (entry or {}).get("pose")
+
+
+def on_finish(cfg, session, ctrl):
+    """End of the teaching session: refit, reprint the report and rewrite the unreachable list."""
+    from .kinematics import report_text
+    from .physical import unreachable_squares
+    model, _ = _model(cfg, ctrl)
+    if not model.ok:
+        log(f"chess: board model not fitted — {model.error}"); return
+    log(f"chess: board model {model.summary()}")
+    log(report_text(model.reachability_report(), cfg))
+    set_unreachable(unreachable_squares(model, cfg))
 
 
 # ---------------------------------------------------------------- status

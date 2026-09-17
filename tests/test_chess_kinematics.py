@@ -128,3 +128,21 @@ def test_no_solution_sits_on_a_straight_or_folded_elbow():
 def test_the_plane_spans_corner_centres_not_the_board_edges():
     m = model()
     assert (m.w_cm, m.h_cm) == pytest.approx((PLANE_CM, PLANE_CM))
+
+
+def test_a_square_reached_by_hand_is_solved_with_its_own_allowance_and_no_other_square_is():
+    """The soft limits stay as calibrated; the square the operator drove to gets the range it proved."""
+    free = model()
+    lo, hi = free.pose_for("a1")["shoulder_pan"], free.pose_for("h1")["shoulder_pan"]
+    band = [lo + 0.25 * (hi - lo), hi]
+    d = taught()
+    tight = GripperModel(floor_model(), d, {**WIDE_LIMITS, "shoulder_pan": band})
+    lost = tight.reachability_report()["unreachable"]["grasp"]
+    assert len(lost) >= 2, "need a square to teach and one to leave alone"
+    taught_sq, other = lost[0], lost[1]
+
+    d["board"]["reach"] = {taught_sq: {"pose": free.pose_for(taught_sq),
+                                       "allow": {"shoulder_pan": [lo, hi]}}}
+    m = GripperModel(floor_model(), d, {**WIDE_LIMITS, "shoulder_pan": band})
+    assert m.pose_for(taught_sq, m.d["heights"]["grasp_default_cm"]) is not None
+    assert m.pose_for(other, m.d["heights"]["grasp_default_cm"]) is None

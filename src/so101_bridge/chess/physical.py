@@ -16,6 +16,10 @@ Heights, in the taught board's frame:
 A piece is lifted straight up before it travels and lowered straight down at the end, and everything in
 between is straight *on the board*, not in joint space: a joint-space interpolation between two squares
 bows across the board and sweeps the pieces in between onto the floor.
+
+Squares the operator reached by hand during teaching carry an ``allow`` — the joint range that pose
+proved — on every step that works on them, so the control loop lets those steps past the soft limit on
+that square and nowhere else. Nothing about the arm's stored limits or its motor registers changes.
 """
 
 import math
@@ -53,13 +57,13 @@ def plan(board, uci, d=None):
                  {"op": "place", "slot": "handover", "why": "promoted pawn"},
                  {"op": "pick", "slot": _reserve_slot(d, info["colour"], info["promotion"]),
                   "piece": info["promotion"]},
-                 {"op": "place", "sq": info["to"]}]
+                 {"op": "place", "sq": info["to"], "piece": info["promotion"]}]
     else:
         acts += [{"op": "pick", "sq": info["from"], "piece": info["piece"]},
-                 {"op": "place", "sq": info["to"]}]
+                 {"op": "place", "sq": info["to"], "piece": info["piece"]}]
     if info["castle"]:
         rook_from, rook_to = info["castle"]
-        acts += [{"op": "pick", "sq": rook_from, "piece": "r"}, {"op": "place", "sq": rook_to}]
+        acts += [{"op": "pick", "sq": rook_from, "piece": "r"}, {"op": "place", "sq": rook_to, "piece": "r"}]
     san = board.san(chess.Move.from_uci(uci))
     return {"uci": uci, "san": san, "kind": info, "actions": acts}
 
@@ -89,8 +93,12 @@ def check(model, actions, d=None):
         z_grasp, lean, _ = ws_mod.piece_grasp(d, a.get("piece", "p"))
         if model.pose_for(a["sq"], z_grasp, lean) is None:
             bad.append({"i": k, "action": a, "why": f"{a['sq']} out of reach at grasp height ({z_grasp} cm)"})
-        elif _best_z(model, a["sq"], _hover(d), z_grasp, lean) is None:
-            bad.append({"i": k, "action": a, "why": f"{a['sq']} cannot be approached from above"})
+        else:
+            z_top = _best_z(model, a["sq"], _carry(d), z_grasp, lean)
+            if z_top is None or z_top < _hover(d):
+                bad.append({"i": k, "action": a, "why": f"{a['sq']} can only be served up to "
+                            f"{z_top if z_top is not None else z_grasp} cm above the board; the approach needs "
+                            f"{_hover(d)} cm (hover_cm) so the jaws clear the neighbouring pieces"})
     return bad
 
 
@@ -107,7 +115,10 @@ def _hover(d):
 
 
 def _carry(d):
-    return float(d["heights"].get("carry_cm", CHESS_CARRY_CM))
+    """Travel height: never below the tallest taught piece plus the clearance the operator asked for."""
+    carry = float(d["heights"].get("carry_cm", CHESS_CARRY_CM))
+    tallest = max([float(p.get("height_cm") or 0) for p in d.get("pieces", {}).values()] or [0.0])
+    return max(carry, tallest + float(d["heights"].get("clearance_cm", 0.0)))
 
 
 def _best_z(model, square, want_cm, floor_cm, lean=None):
@@ -151,6 +162,7 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
         z_grasp, lean, close = ws_mod.piece_grasp(d, piece)
         open_to = ws_mod.piece_open(d, piece)
         where = a.get("sq") or f"[{a.get('slot')}]"
+        allow = ws_mod.reach_allow(d, a["sq"]) if a.get("sq") else None
         if a.get("slot"):
             slot = d.get("slots", {}).get(a["slot"]) or {}
             pose = slot.get("pose")
@@ -168,27 +180,34 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
             continue
 
         u, v = ws_mod.square_uv(d, a["sq"])
+        # a piece is picked at the lean it was taught at (where the model is accurate) but set down as upright
+        # as the arm allows: released tilted, its base meets the board on one edge and it falls over
+        if a["op"] == "place": lean = d["heights"].get("place_lean_deg", lean)
         z_top = _best_z(model, a["sq"], carry, z_grasp, lean)
         z_low = (z_grasp if a["op"] == "pick" else z_grasp + drop)
         if dry_run: z_low = z_top
-        if z_top is None: log(f"chess: {a['sq']} unreachable above the board"); return None
+        if z_top is None or z_top < _hover(d):
+            log(f"chess: {a['sq']} cannot be approached from above ({z_top} cm, needs {_hover(d)} cm)"); return None
         # 1) travel to the square at the highest height both ends allow, ramping if they differ
         if cur_uv is not None:
             pts = plane_travel(model, cur_uv, (u, v), cur_z, step_cm=PLANE_STEP_CM, z_to=z_top,
                                zcorr=zcorr, lean=_rad(lean))
             if pts is None: log(f"chess: no clear line from {cur_uv} to {a['sq']} at carry height"); return None
-            out.append({"op": "path", "points": pts, "speed": TRAVEL_SPEED, "label": f"carry to {where}"})
+            out.append({"op": "path", "points": pts, "speed": TRAVEL_SPEED, "label": f"carry to {where}",
+                        **({"allow": allow} if allow else {})})
         else:
             first = model.pose_for(a["sq"], z_top, lean)
             if first is None: return None
-            out.append({"op": "path", "points": [first], "speed": TRAVEL_SPEED, "label": f"to {where}"})
+            out.append({"op": "path", "points": [first], "speed": TRAVEL_SPEED, "label": f"to {where}",
+                        **({"allow": allow} if allow else {})})
         # 2) open before descending onto a piece, so the jaws never brush a neighbour on the way down
         if a["op"] == "pick" and not dry_run:
             out.append({"op": "grip", "value": open_to, "label": f"open over {where}"})
         # 3) straight down, close or release, straight back up
         down = _column(model, d, a["sq"], z_top, z_low, lean, zcorr)
         if down is None: log(f"chess: cannot descend on {a['sq']}"); return None
-        if down: out.append({"op": "path", "points": down, "speed": DESCEND_SPEED, "label": f"down on {where}"})
+        if down: out.append({"op": "path", "points": down, "speed": DESCEND_SPEED, "label": f"down on {where}",
+                             **({"allow": allow} if allow else {})})
         if not dry_run:
             out.append({"op": "grip", "value": (close if a["op"] == "pick" else open_to),
                         "label": f"{'grasp' if a['op'] == 'pick' else 'release'} {piece} on {where}",
@@ -201,7 +220,8 @@ def steps(model, actions, d=None, dry_run=False, start_uv=None):
                         **({"expect_min": _stall_min(d, piece)} if a["op"] == "pick" else {})})
             out.append({"op": "dwell", "seconds": 0.2, "label": "settle"})
         up = _column(model, d, a["sq"], z_low, z_top, lean, zcorr)
-        if up: out.append({"op": "path", "points": up, "speed": DESCEND_SPEED, "label": f"lift from {where}"})
+        if up: out.append({"op": "path", "points": up, "speed": DESCEND_SPEED, "label": f"lift from {where}",
+                           **({"allow": allow} if allow else {})})
         cur_uv, cur_z = (u, v), z_top
     return out
 

@@ -6,12 +6,13 @@ check the *shape* the drawing code relies on, which is what breaks silently when
 
 import sys
 import threading
+import time
 
 import pytest
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
 from chess_synth import WIDE_LIMITS, floor_model, taught  # noqa: E402
-from so101_bridge import dashboard  # noqa: E402
+from so101_bridge import dashboard, settings  # noqa: E402
 from so101_bridge.chess import game as rules  # noqa: E402
 from so101_bridge.chess import history as H  # noqa: E402
 from so101_bridge.chess import workspace as ws  # noqa: E402
@@ -26,11 +27,17 @@ class FakeCtrl:
         self.teach = None
         self.chess_reader = None
         self.frame = {}
+        self.frame_t = {}
         self.present = {**d["board"]["corners"]["a1"], "gripper": 10.0}
 
     def snapshot(self):
         return {"present": dict(self.present), "mode": "hold", "torque_on": True, "estop": False,
                 "limits": WIDE_LIMITS, "time": "12:00:00"}, {}
+
+    def latest_frame(self, cam, max_age_s=None):
+        if self.frame.get(cam) is None: return None
+        if (time.time() - self.frame_t.get(cam, 0.0)) > (max_age_s or settings.FRAME_MAX_AGE_S): return None
+        return self.frame[cam]
 
 
 @pytest.fixture
@@ -82,7 +89,7 @@ def test_the_camera_panel_compares_what_is_seen_with_what_should_be_there(ctrl):
     empty = np.full((300, 300, 3), 30, np.uint8)
     assert reader.set_reference(empty)
     ctrl.chess_reader = reader
-    ctrl.frame[d["board"]["cam"]] = empty                            # an empty board, so nothing is "seen"
+    ctrl.frame[d["board"]["cam"]] = empty; ctrl.frame_t[d["board"]["cam"]] = time.time()   # an empty board, so nothing is "seen"
     GameLog.new(mode="play", robot="white")
     st = dashboard.chess_state(ctrl)
     cam = st["camera"]
@@ -107,15 +114,49 @@ def test_the_pose_panel_gets_a_copyable_live_pose(ctrl):
     assert all(isinstance(v, (int, float)) for v in present.values())
 
 
+def _play(g, uci, **extra):
+    board = g.board()
+    san, fen = rules.push(board, uci)
+    return g.move(uci=uci, san=san, fen_after=fen, **{"by": "llm", "executed_by": "robot", **extra})
+
+
 def test_the_move_list_carries_what_the_arm_did_not_just_what_was_played(ctrl):
     g = GameLog.new(mode="play", robot="white", players={"white": "llm", "black": "human"})
-    board = g.board()
-    san, fen = rules.push(board, "e2e4")
-    g.move(by="llm", uci="e2e4", san=san, fen_after=fen, executed_by="robot", verify="ok",
-           exec={"seconds": 7.2, "steps": 11, "points": 60, "grips": 3})
+    _play(g, "e2e4", verify="ok", exec={"seconds": 7.2, "steps": 11, "points": 60, "grips": 3})
     rows = dashboard.chess_state(ctrl)["moves"]
     assert rows[-1]["san"] == "e4" and rows[-1]["executed_by"] == "robot"
     assert rows[-1]["verify"] == "ok" and rows[-1]["exec"]["seconds"] == 7.2
+
+
+def test_a_move_row_says_who_moved_which_piece_from_where_to_where(ctrl):
+    g = GameLog.new(mode="play", robot="white", players={"white": "llm", "black": "human"})
+    _play(g, "e2e4")
+    _play(g, "d7d5", by="human", executed_by="human")
+    _play(g, "e4d5", actions=[{"op": "pick", "sq": "d5", "piece": "p"},
+                              {"op": "place", "slot": "handover", "why": "captured"},
+                              {"op": "pick", "sq": "e4", "piece": "p"}, {"op": "place", "sq": "d5"}])
+    rows = dashboard.chess_state(ctrl)["moves"]
+    assert [r["ply"] for r in rows] == [1, 2, 3]                     # oldest first: the page scrolls forward
+    assert [r["no"] for r in rows] == [1, 1, 2]                      # ...grouped by move number
+    assert [r["side"] for r in rows] == ["white", "black", "white"]
+    take = rows[-1]
+    assert take["piece_name"] == "pawn" and take["from"] == "e4" and take["to"] == "d5"
+    assert take["capture"]["square"] == "d5" and take["capture"]["name"] == "pawn"
+    assert "capture" in take["flags"]
+    assert take["trace"] == ["pick pawn d5", "place handover (captured)", "pick pawn e4", "place d5"]
+    assert rows[1]["by"] == "human" and rows[1]["executed_by"] == "human" and not rows[1]["trace"]
+
+
+def test_the_position_panel_marks_the_last_move_and_what_it_took(ctrl):
+    g = GameLog.new(mode="play", robot="white")
+    for uci in ("e2e4", "d7d5", "e4d5"):
+        _play(g, uci)
+    b = dashboard.chess_state(ctrl)["board"]
+    marks = {s["name"]: s["mark"] for s in b["squares"] if s["mark"]}
+    assert marks == {"e4": "from", "d5": "to"}                       # the capture happened on the landing square
+    assert [p["glyph"] for p in b["captured"]["black"]] and not b["captured"]["white"]
+    assert b["material"]["diff"] == 1                                 # white is a pawn up
+    assert b["files"] == list("abcdefgh") and b["ranks"] == [8, 7, 6, 5, 4, 3, 2, 1]
 
 
 def test_the_learning_panel_and_the_suggestions_come_from_the_history(ctrl):

@@ -49,8 +49,7 @@ def _model(ctrl, d):
 
 
 def _frame(ctrl, cam=None):
-    with ctrl.lock:
-        return ctrl.frame.get(cam or CHESS_CAM)
+    return ctrl.latest_frame(cam or CHESS_CAM)
 
 
 def _fail(ctrl, msg, glog=None):
@@ -101,7 +100,7 @@ def run_steps(ctrl, steps, on_phase=None, record=None):
                                f"{s['expect_min']} ({s.get('label')})")
         elif s["op"] == "path":
             pts = bridge_from_present(ctrl, s["points"])
-            if not ctrl.path(pts, s.get("speed", physical.TRAVEL_SPEED)):
+            if not ctrl.path(pts, s.get("speed", physical.TRAVEL_SPEED), allow=s.get("allow")):
                 return False, f"move interrupted: {s.get('label')} (guard, ESTOP or timeout)"
         else:
             return False, f"unknown step op {s['op']!r}"

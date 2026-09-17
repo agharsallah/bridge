@@ -237,3 +237,33 @@ the code, and what the first hardware session has to settle.
    `var/games/<id>.json` every turn, so it stays a FEN and a move list; each move carries only a compact
    `exec` block (seconds, steps, points, grips). Everything a human would want for debugging lives in
    `var/chess_history.jsonl`, which nothing in the loop ever reads back.
+
+## First real chess grasp attempt — Nf3 from g1 (2026-09-15, 19:59–20:53)
+
+Board next to the arm base (h1 centre ~9 cm from the shoulder axis). Three attempts, what each one taught:
+
+1. **19:59, "grasp held", nothing picked.** `gripper_to` counted 0.8 s of standstill *before* the jaws had
+   started moving as "settled" (returned 59.8 = still open), and `wait_reached` accepted the stale `reached`
+   of the previous move, so the descent was cut short by the next command. Both fixed in `controller.py`
+   (wait for the loop to take the request; ignore stillness until the jaws have moved). A load guard trip
+   on a garbage packet (pan −1020, wrist_roll −1019 on two ticks) is now rejected outright (≥2 joints
+   near ±1000 = corrupt read).
+2. **Why the arm could not hover over rank 1.** Squares 8–9 cm from the shoulder axis need wrist_flex
+   90–100° to hold the jaws 6 cm up; the calibration sweep stopped at 83.8°. The planner's fallback
+   "hover as high as you can" gave a 1.5 cm hover over g1 — jaws opening at piece-base height, then a
+   carry at 1.5–3 cm across f2/g2. Two changes: a pick/place is now refused unless the square can be
+   approached at `hover_cm` (no silent low hovers), and the operator proved the pose by hand
+   (wrist 95.4° over g1) so `limits.json` extends wrist_flex to 100°. Hover became 100 % reachable, carry
+   at 14 cm 94 % (e1–h1 excluded).
+3. **20:53, first real attempt with the new limits — a partial win.** The arm went to g1 at 14 cm, opened,
+   descended straight, closed, detected the miss (jaws settled at 5.5 < 12), and lifted straight up before
+   anything else — no piece knocked over, guards silent. Two misses to fix:
+   - jaws opened to 35 and brushed the piece on h1 — 3.6 cm pitch leaves ~1 cm per side; the opening must
+     be ≤ 3 cm across the jaws (`pieces.<p>.open`, measured, not guessed);
+   - the knight was not between the jaws at the taught 2.57 cm: the height model is uncertain by ~2 cm
+     (`z0` free-fitted, tool length unmeasured) and the knight's neck is narrow — grasp lower, at the base.
+
+Rules that now live in config: piece heights in `config/pieces.json`; `heights.clearance_cm` 8 and
+`carry_cm` = tallest piece + clearance (14 cm) — jaws 8 cm above the pieces before any sideways travel.
+Open question for the next attempt: confirm the hold with a camera before carrying (the wrist camera was
+not starting this session; the top camera needs the image corners taught to read a cell).

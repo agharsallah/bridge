@@ -121,7 +121,7 @@ def chess_command(ctrl, act, c, limits, present):
     elif act == "chess_reference":                 # capture the EMPTY board: every reading is a diff from it
         from .chess import vision as chess_vision
         d = chess_ws.load()
-        with ctrl.lock: frame = ctrl.frame.get(c.get("cam") or d["board"].get("cam") or CHESS_CAM)
+        frame = ctrl.latest_frame(c.get("cam") or d["board"].get("cam") or CHESS_CAM)
         if frame is None: log("chess: no frame from that camera yet"); return
         reader = chess_vision.BoardReader(d)
         if not reader.ok: log(f"chess: {reader.error()}"); return
@@ -134,7 +134,7 @@ def chess_command(ctrl, act, c, limits, present):
         except ValueError as e: log(f"chess: {e}")
     elif act == "chess_check_view":                # can the camera see the board at all?
         d = chess_ws.load()
-        with ctrl.lock: frame = ctrl.frame.get(c.get("cam") or d["board"].get("cam") or CHESS_CAM)
+        frame = ctrl.latest_frame(c.get("cam") or d["board"].get("cam") or CHESS_CAM)
         if frame is None: log("chess: no frame from that camera yet"); return
         from .chess import vision as chess_vision
         if chess_vision.homography(d) is not None: log("chess: board located from the taught image corners")
@@ -170,7 +170,20 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
         signal.signal(signal.SIGINT, lambda *_: stop.__setitem__("flag", True))
     log(f"ready. present={ {k: round(v, 1) for k, v in present.items()} }")
 
-    def guard_point(target_pose, ref, src):
+    def bounds(j, allow):
+        """The limits one joint is held to, widened for a point the operator has driven to by hand.
+
+        ``allow`` comes with the command ({joint: [lo, hi]}) and is the only way past the soft limit —
+        it is capped by the motor's own sweep, so it can spend the calibration margin and nothing more,
+        it changes no stored configuration, and it applies to that command alone.
+        """
+        lo, hi = limits[j]
+        want = (allow or {}).get(j)
+        if not want: return lo, hi
+        hlo, hhi = hardware.hard_limits().get(j, (lo, hi))
+        return max(hlo, min(lo, float(want[0]))), min(hhi, max(hi, float(want[1])))
+
+    def guard_point(target_pose, ref, src, allow=None):
         """Step cap, soft limits and floor guard for one goal pose relative to a reference pose."""
         out = dict(ref)
         for j, v in target_pose.items():
@@ -179,7 +192,8 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             if j != "gripper" and abs(target - ref[j]) > MAX_STEP_DEG:
                 target = ref[j] + MAX_STEP_DEG * (1 if target > ref[j] else -1)
                 ctrl.event("STEP CAP", f"{j}: limited to {MAX_STEP_DEG} deg ({src})")
-            lo, hi = limits[j]; clamped = min(hi, max(lo, target))
+            lo, hi = bounds(j, allow)
+            clamped = min(hi, max(lo, target))
             if abs(clamped - target) > 1e-6: ctrl.event("CLAMP", f"{j}: {target:.1f} -> {clamped:.1f} ({src})")
             out[j] = clamped
         if ctrl.floor.params is not None and src != "floor_ok":
@@ -199,7 +213,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             robot.bus.enable_torque(num_retry=5); torque_on = True; cmd = dict(present)
         pts, ref, src = [], dict(present), c.get("src", "file")
         for p in c.get("points", []):
-            ref = guard_point(p, ref, src); pts.append(ref)
+            ref = guard_point(p, ref, src, c.get("allow")); pts.append(ref)
         if not pts: log("path: no points"); return
         s = c.get("speed")
         if s is not None:
@@ -220,7 +234,8 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             if j != "gripper" and abs(target - present[j]) > MAX_STEP_DEG:
                 target = present[j] + MAX_STEP_DEG * (1 if target > present[j] else -1)
                 ctrl.event("STEP CAP", f"{j}: limited to {MAX_STEP_DEG} deg from present")
-            lo, hi = limits[j]; clamped = min(hi, max(lo, target))
+            lo, hi = bounds(j, c.get("allow"))
+            clamped = min(hi, max(lo, target))
             if abs(clamped - target) > 1e-6: ctrl.event("CLAMP", f"{j}: {target:.1f} -> {clamped:.1f}")
             goal[j] = clamped
         # floor guard: shrink the step until the predicted fingertip height stays above the margin
@@ -246,7 +261,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
     while not stop["flag"] and (max_iters is None or loop_i < max_iters):
         t0 = time.perf_counter(); loop_i += 1
         try:
-            obs = robot.get_observation()
+            obs = hardware.read_observation(robot)
             present = {j: float(obs[f"{j}.pos"]) for j in JOINTS}
 
             # ---- E-STOP
@@ -350,6 +365,9 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
             if torque_on and mode in ("moving", "reached", "hold"):
                 try: loads = robot.bus.sync_read("Present_Load", normalize=False, num_retry=2)
                 except Exception: loads = {}
+                garbage = [j for j, v in loads.items() if abs(v) > 900]
+                if len(garbage) >= 2:                  # corrupt Feetech packet: several joints near +-1000 at once
+                    log(f"load sample rejected (garbage packet): { {j: loads[j] for j in garbage} }"); loads = {}
                 if loads: last_loads = {j: int(v) for j, v in loads.items()}
                 hot = {j: v for j, v in loads.items() if j != "gripper" and abs(v) > LOAD_LIMIT[j]}
                 # a single over-limit sample is not trusted: the Feetech bus occasionally returns a garbage packet
@@ -411,10 +429,12 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                 blobs, frames = {}, {}
                 ws = paint_ws.load()
                 for n in CAMS:
+                    if obs.get(n) is None: continue             # that camera is quiet; its last frame keeps its age
                     jpeg, b, bgr = vision.render(obs[n], n, mode, ctrl.routine_status,
                                                  show_servo_guides=(n == "wrist" and ctrl.routine_status == "running"))
                     frames[n] = bgr
-                    with ctrl.lock: ctrl.frame[n] = obs[n]      # raw frame: the chess board reader warps this one
+                    with ctrl.lock:                             # raw frame: the chess board reader warps this one
+                        ctrl.frame[n] = obs[n]; ctrl.frame_t[n] = time.time()
                     if b: blobs[n] = b
                     if jpeg:
                         with ctrl.lock: ctrl.jpeg[n] = jpeg
@@ -442,7 +462,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                       "auto": ctrl.routine_status,
                       "progress": {k: ctrl.progress.get(k) for k in ("routine", "phase", "detail", "paint")},
                       "teach": ctrl.teach.state() if ctrl.teach else None, "chess": chess_state(),
-                      "video": ctrl.video.status()}
+                      "video": ctrl.video.status(), "cams": hardware.camera_status()}
                 with ctrl.lock: ctrl.state = st
                 atomic_write(STATE_FILE, json.dumps(st, indent=1).encode()); last_state = now
         except Exception:

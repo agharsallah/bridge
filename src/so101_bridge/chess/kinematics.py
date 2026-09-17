@@ -44,9 +44,13 @@ class GripperModel(PlaneModel):
 
         ``lean_deg`` is the lean the grasp was taught at (degrees from vertical-down); the IK starts
         there and walks outwards, so a square that needs more lean than the operator used still gets a
-        solution instead of a refusal."""
+        solution instead of a refusal.
+
+        A square the operator has driven to by hand (``chess.json["board"]["reach"]``) is solved against
+        the range that pose proved, instead of the soft limit — on that square only."""
         u, v = ws_mod.square_uv(self.d, square)
         lean = None if lean_deg is None else math.pi - math.radians(float(lean_deg))
+        kw.setdefault("allow", ws_mod.reach_allow(self.d, square))
         return self.uv_to_pose(u, v, z_cm, lean=lean, **kw)
 
     def square_uv(self, square):

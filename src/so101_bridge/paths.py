@@ -23,6 +23,7 @@ WP_FILE = CONFIG_DIR / "waypoints.json"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"   # optional overrides of settings.py (see config/settings.example.json)
 POSES_FILE = CONFIG_DIR / "poses.json"         # optional overrides of the taught paths in poses.py
 CHESS_FILE = CONFIG_DIR / "chess.json"         # taught chess workspace (board corners, pieces, slots, heights)
+PIECES_FILE = CONFIG_DIR / "pieces.json"        # the chess set: piece heights in cm
 TEACH_DIR = CONFIG_DIR / "teach"               # guided teaching sessions: <name>.json, see shared/teach.py
 
 # --- runtime (ignored)

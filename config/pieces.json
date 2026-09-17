@@ -1,0 +1,13 @@
+{
+ "_comment": "Piece dimensions in cm, measured 2026-09-15. tallest + heights.clearance_cm in chess.json = carry height. Board 24x24 cm, squares 3x3 cm: jaw opening must stay under ~2.5 cm (gripper.open 22) or it touches neighbours.",
+ "height_cm": {
+  "p": 3.0,
+  "n": 4.0,
+  "b": 5.0,
+  "r": 3.5,
+  "q": 5.5,
+  "k": 6.0
+ },
+ "board_cm": 24.0,
+ "square_cm": 3.0
+}

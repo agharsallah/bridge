@@ -26,6 +26,7 @@ class Controller:
         self.pending = []            # command dicts from files / http / routine
         self.jpeg = {}               # latest encoded frames for the dashboard
         self.frame = {}              # latest RAW frames per camera (routines that do their own vision)
+        self.frame_t = {}            # when each of those frames was taken — a stale board reading is a wrong move
         self.blob = {}               # latest detections per camera
         self.paint_jpeg = {}         # latest paper/colour-well overlay frames for the /paint page
         self.state = {}
@@ -178,6 +179,18 @@ class Controller:
         with self.lock:
             return dict(self.state), dict(self.blob)
 
+    def latest_frame(self, cam, max_age_s=None):
+        """The newest raw frame from that camera, or ``None`` if it is older than ``max_age_s``.
+
+        Everything that reads the board goes through here: a frame left over from before a camera went
+        quiet still looks like a board, so serving it would be read as a position that is no longer there.
+        """
+        if max_age_s is None: max_age_s = settings.FRAME_MAX_AGE_S
+        with self.lock:
+            frame, t = self.frame.get(cam), self.frame_t.get(cam)
+        if frame is None or t is None or (time.time() - t) > max_age_s: return None
+        return frame
+
     # ------------------------------------------------------------- autonomous routine (runs in a thread)
     def start_routine(self, name):
         """Run a registered routine (see routines.py) in its own thread."""
@@ -229,16 +242,29 @@ class Controller:
             time.sleep(0.05)
         log("AUTO: timeout waiting for move"); return False
 
+    def _wait_moving(self, timeout=1.5):
+        """After a request: block until the loop has taken it (mode 'moving'), so the stale 'reached' of the
+        previous move is never mistaken for this one — the loop tick can be slower than a fixed sleep."""
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            st, _ = self.snapshot()
+            if st.get("mode") == "moving" or st.get("estop") or self.routine_abort.is_set(): return
+            time.sleep(0.02)
+
     def goto(self, pose, speed=4.0, timeout=15.0):
         self.request({"action": "goal", "goal": pose, "speed": speed, "src": "auto"})
-        time.sleep(0.15)
+        self._wait_moving()
         return self.wait_reached(timeout)
 
-    def path(self, points, speed=6.0, timeout=None):
-        """Follow a dense list of poses continuously (the loop's 'path' command); wait until the end is reached."""
+    def path(self, points, speed=6.0, timeout=None, allow=None):
+        """Follow a dense list of poses continuously (the loop's 'path' command); wait until the end is reached.
+
+        ``allow`` is the per-joint range this move may use instead of the soft limit — see the loop's
+        ``bounds``; it is what a square taught by hand carries with it."""
         if not points: return True
-        self.request({"action": "path", "points": [dict(p) for p in points], "speed": speed, "src": "auto"})
-        time.sleep(0.15)
+        self.request({"action": "path", "points": [dict(p) for p in points], "speed": speed, "src": "auto",
+                      **({"allow": allow} if allow else {})})
+        self._wait_moving()
         if timeout is None:
             travel = sum(max(abs(b.get(j, a.get(j, 0)) - a.get(j, 0)) for j in a) for a, b in zip(points, points[1:])) if len(points) > 1 else 12
             timeout = 10.0 + 2.0 * (travel + 12) / max(speed, 0.5)
@@ -259,12 +285,17 @@ class Controller:
     def gripper_to(self, value, speed=15.0):
         """Close/open; returns the settled gripper position (it stalls on an object)."""
         self.request({"action": "goal", "goal": {"gripper": value}, "speed": speed, "src": "auto"})
-        last, stable = None, 0
-        for _ in range(120):
+        self._wait_moving()
+        start, last, stable = None, None, 0
+        for i in range(120):
             time.sleep(0.1)
             if self.routine_abort.is_set(): return None
             st, _ = self.snapshot(); g = st.get("present", {}).get("gripper")
             if g is None: continue
+            if start is None: start = g
+            # the jaws ramp at `speed` deg/s and start late: standing still before they have moved is not
+            # "settled" (that is how a grasp once returned 59.8 with the jaws wide open and the piece on the board)
+            if abs(g - start) < 1.0 and abs(g - float(value)) > 1.0 and i < 30: last = g; continue
             if last is not None and abs(g - last) < 0.3:
                 stable += 1
                 if stable >= 8: return g

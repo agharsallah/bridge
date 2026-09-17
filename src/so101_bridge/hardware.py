@@ -4,13 +4,17 @@ Split out of the control loop so the loop file contains nothing but the 30 Hz cy
 """
 
 import json
+import threading
 import time
 
 from .paths import LIMITS_FILE
 from .settings import (
     CAL_MARGIN_DEG,
+    CAM_FOURCC,
     CAM_FPS,
     CAM_H,
+    CAM_MAX_AGE_MS,
+    CAM_RETRY_S,
     CAM_W,
     CAMS,
     JOINTS,
@@ -42,12 +46,20 @@ def _lerobot():
 
 
 def connect(attempts: int = 5):
-    """Connect to the arm and its cameras, retrying bus hiccups. Torque is never dropped."""
+    """Connect to the arm, then its cameras, retrying bus hiccups. Torque is never dropped.
+
+    The cameras are attached one at a time *after* the bus, and a camera that will not start is simply
+    left off: ``SOFollower.is_connected`` is false while any of its cameras is down, and ``send_action``
+    refuses to run when it is — so a wedged USB camera would otherwise stop the arm being commanded at
+    all. A detached camera is retried in the background and joins the running bridge when it comes back.
+    """
     OpenCVCameraConfig, SOFollowerRobotConfig, QuietFollower = _lerobot()
-    cams = {n: OpenCVCameraConfig(index_or_path=i, fps=CAM_FPS, width=CAM_W, height=CAM_H) for n, i in CAMS.items()}
+    cams = {n: OpenCVCameraConfig(index_or_path=i, fps=CAM_FPS, width=CAM_W, height=CAM_H, fourcc=CAM_FOURCC)
+            for n, i in CAMS.items()}
     cfg = SOFollowerRobotConfig(port=PORT, id=ROBOT_ID, cameras=cams, disable_torque_on_disconnect=False,
                                 max_relative_target=5.0)
     robot = QuietFollower(cfg)
+    wanted = dict(robot.cameras); robot.cameras = {}        # the bus first, cameras below
     for attempt in range(1, attempts + 1):
         try:
             log(f"connecting (attempt {attempt})..."); robot.connect(calibrate=False)
@@ -56,12 +68,10 @@ def connect(attempts: int = 5):
             log(f"bus hiccup: {e}")
             try: robot.bus.disconnect(disable_torque=False)
             except Exception: pass
-            for cam in robot.cameras.values():
-                try:
-                    if cam.is_connected: cam.disconnect()
-                except Exception: pass
             if attempt == attempts: raise
             time.sleep(1.0)
+    for name, cam in wanted.items():
+        _attach(robot, name, cam)
     if not robot.is_calibrated:
         # homing offsets / limits in the motors differ from the file (normal after an 'extend'): restore the file's
         # values first, the extension below re-applies on top.
@@ -78,6 +88,96 @@ def configure_motors(robot):
             robot.bus.write("P_Coefficient", m, P_GAIN.get(m, P_GAIN_DEFAULT), num_retry=5)
         robot.bus.write("Acceleration", m, MOTOR_ACCEL, normalize=False, num_retry=5)
         robot.bus.write("Goal_Velocity", m, MOTOR_GOAL_VELOCITY, normalize=False, num_retry=5)
+
+
+# ------------------------------------------------------------------------------- reading the arm and the cameras
+_CAM = {}   # per camera: the object, when it went quiet, when to try it next, whether a retry is running
+
+
+def read_observation(robot):
+    """Joint positions from the bus; camera frames best-effort.
+
+    lerobot's ``get_observation`` raises when a camera hands back a stale frame, and its background read
+    thread gives up for good after ten consecutive failures — either way the exception would come out of
+    the 30 Hz loop, which then commands nothing for half a second because a USB camera hiccupped. Here
+    the bus read is the only thing allowed to raise: a late or dead camera yields ``None`` for its frame,
+    is detached so it cannot block ``send_action``, and is retried in the background.
+    """
+    obs = {f"{m}.pos": v for m, v in
+           robot.bus.sync_read("Present_Position", num_retry=robot.config.num_read_retries).items()}
+    for name in list(robot.cameras):
+        obs[name] = _frame(robot, name)
+    for name, st in list(_CAM.items()):              # cameras that are down: try them again now and then
+        if name not in robot.cameras:
+            obs.setdefault(name, None); _retry(robot, name, st)
+    return obs
+
+
+def camera_status():
+    """``/state.cams``: which cameras are delivering, and how long a missing one has been gone."""
+    return {n: (round(time.time() - (_CAM[n]["since"] or time.time()), 1) if n in _CAM else None) for n in CAMS}
+
+
+def _frame(robot, name):
+    cam = robot.cameras[name]
+    try:
+        frame = cam.read_latest(max_age_ms=CAM_MAX_AGE_MS)
+    except Exception as e:
+        st = _CAM.setdefault(name, {"cam": cam, "since": None, "next_try": 0.0, "reopening": False})
+        st.update(cam=cam, since=time.time(), next_try=time.time() + CAM_RETRY_S)
+        robot.cameras.pop(name, None)                # detached: is_connected stays true, the arm keeps moving
+        log(f"camera {name}: no frames ({e}) — detached, the bridge runs without it and keeps retrying")
+        return None
+    if name in _CAM: _CAM.pop(name, None)
+    return frame
+
+
+def _attach(robot, name, cam):
+    """Connect one camera and hand it to the robot; on failure it is left off and retried later."""
+    try:
+        if not cam.is_connected: cam.connect()
+        robot.cameras[name] = cam
+        _CAM.pop(name, None)
+        log(f"camera {name}: connected")
+        return True
+    except Exception as e:
+        try: cam.disconnect()
+        except Exception: pass
+        _CAM[name] = {"cam": cam, "since": time.time(), "next_try": time.time() + CAM_RETRY_S, "reopening": False}
+        log(f"camera {name}: will not start ({e}) — running without it, retrying every {CAM_RETRY_S:.0f} s")
+        return False
+
+
+def _retry(robot, name, st):
+    """Reopen a detached camera on its own thread — connect() blocks for seconds and the loop may not."""
+    if st["reopening"] or time.time() < st["next_try"]: return
+    st["reopening"] = True; st["next_try"] = time.time() + CAM_RETRY_S
+
+    def work():
+        down = time.time() - (st["since"] or time.time())
+        try:
+            try: st["cam"].disconnect()
+            except Exception: pass
+            if _attach(robot, name, st["cam"]):
+                log(f"camera {name}: back after {down:.0f} s")
+        except Exception as e:
+            log(f"camera {name}: retry failed: {e}")
+        finally:
+            st["reopening"] = False
+
+    threading.Thread(target=work, name=f"cam-{name}", daemon=True).start()
+
+
+_HARD = {}   # the sweep itself, margin included: what the motor registers will actually accept
+
+
+def hard_limits():
+    """What the motors can be commanded to, margin and all — the ceiling on any per-point allowance.
+
+    ``joint_limits`` takes the calibration margin off; a point the operator has driven to by hand may
+    use that margin back, but nothing may go past the sweep the registers hold.
+    """
+    return dict(_HARD)
 
 
 def joint_limits(robot):
@@ -100,5 +200,12 @@ def joint_limits(robot):
             robot.bus.write("Max_Position_Limit", m, raw_hi, normalize=False, num_retry=5)
             log(f"EXTENDED {m}: soft {lo:.1f}..{hi:.1f} deg, motor limits {raw_lo}..{raw_hi} (cal was {c.range_min}..{c.range_max})")
         limits[m] = [lo, hi]
+        # what the MOTOR will accept, which is where any per-point allowance stops: the registers as they
+        # were just written for an extended joint, and the calibration sweep (margin included) otherwise.
+        if m == "gripper": _HARD[m] = [0.0, 100.0]
+        elif m in extend:
+            mid = (c.range_min + c.range_max) / 2
+            _HARD[m] = [(raw_lo - mid) * 360 / 4095, (raw_hi - mid) * 360 / 4095]
+        else: _HARD[m] = [-half, half]
     log(f"limits: {json.dumps({k: [round(a, 1), round(b, 1)] for k, (a, b) in limits.items()})}")
     return limits

@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from . import routines
 from .chess import history as chess_history
 from .chess import kinematics as chess_kin
+from .chess import view as chess_view
 from .chess import vision as chess_vision
 from .chess import workspace as chess_ws
 from .chess.log import GameLog
@@ -148,43 +149,18 @@ def chess_state(ctrl):
                    "board_z_cm": round(model.z_plane * 100, 1) if model.ok else None,
                    "heights": d["heights"] if model.ok else {}}
     g = GameLog.latest()
+    doc = g.doc if g else None
+    out["moves"] = chess_view.move_rows(doc)
+    out["board"] = chess_view.board_view(d, doc["fen"] if doc else None,
+                                         out["moves"][-1] if out["moves"] else None,
+                                         doc.get("start_fen") if doc else None)
+    out["camera"] = chess_camera_view(ctrl, d, doc["fen"] if doc else None)
     if g:
         out["game"] = g.summary(); out["pgn"] = g.doc.get("pgn")
-        out["moves"] = [{k: m.get(k) for k in ("ply", "by", "uci", "san", "executed_by", "verify", "time", "exec")}
-                        for m in g.doc.get("moves", [])]
-        out["board"] = chess_board_view(d, g.doc["fen"])
-        out["camera"] = chess_camera_view(ctrl, d, g.doc["fen"])
-    else:
-        out["board"] = chess_board_view(d, None)
-        out["camera"] = chess_camera_view(ctrl, d, None)
     stats = chess_history.stats(d=d)
     out["history"] = stats
     out["suggestions"] = chess_history.suggestions(stats, d)
     return out
-
-
-PIECE_GLYPHS = {"K": "\u2654", "Q": "\u2655", "R": "\u2656", "B": "\u2657", "N": "\u2658", "P": "\u2659",
-                "k": "\u265a", "q": "\u265b", "r": "\u265c", "b": "\u265d", "n": "\u265e", "p": "\u265f"}
-
-
-def chess_board_view(d, fen):
-    """The position as the page draws it: one entry per square, in the robot's own viewing order.
-
-    ``{"squares": [{"name", "glyph", "colour", "piece", "light"}...], "turn", "last"}`` — the page does
-    no chess and no orientation arithmetic, it just lays 64 cells out in the order given."""
-    import chess
-    board = chess.Board(fen) if fen else chess.Board()
-    out = []
-    for name in chess_ws.squares(d):
-        sq = chess.parse_square(name)
-        p = board.piece_at(sq)
-        f, r = chess_ws.parse_square(name)
-        out.append({"name": name, "piece": p.symbol() if p else None,
-                    "glyph": PIECE_GLYPHS.get(p.symbol()) if p else None,
-                    "colour": (None if p is None else ("white" if p.color else "black")),
-                    "light": (f + r) % 2 == 1})
-    return {"squares": out, "turn": "white" if board.turn else "black",
-            "check": board.is_check(), "fen": board.fen()}
 
 
 def chess_camera_view(ctrl, d, fen):
@@ -197,8 +173,7 @@ def chess_camera_view(ctrl, d, fen):
         return {"ok": False, "why": "the board's image corners have not been taught — click them on the view above"}
     if reader.reference is None:
         return {"ok": False, "why": "no empty-board reference yet — clear the board and press Capture empty board"}
-    with ctrl.lock:
-        frame = ctrl.frame.get(d["board"].get("cam"))
+    frame = ctrl.latest_frame(d["board"].get("cam"))
     if frame is None:
         return {"ok": False, "why": f"no frame from camera {d['board'].get('cam')!r}"}
     try:
@@ -225,8 +200,7 @@ def chess_overlay(ctrl, cam):
     """The raw overhead frame with the taught board drawn on it — encoded on demand, not in the loop."""
     import cv2
     import numpy as np
-    with ctrl.lock:
-        frame = ctrl.frame.get(cam)
+    frame = ctrl.latest_frame(cam)
     if frame is None: return None
     img = frame.copy()
     d = chess_ws.load()
@@ -256,8 +230,7 @@ def chess_warp_jpeg(ctrl):
     reader = getattr(ctrl, "chess_reader", None)
     H = reader.H if (reader is not None and reader.ok) else chess_vision.homography(d)
     if H is None: return None
-    with ctrl.lock:
-        frame = ctrl.frame.get(d["board"].get("cam"))
+    frame = ctrl.latest_frame(d["board"].get("cam"))
     if frame is None: return None
     px = int(d["vision"].get("warp_px", chess_vision.WARP_PX))
     img = chess_vision.warp(frame, H, px)

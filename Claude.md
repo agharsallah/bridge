@@ -1,0 +1,9 @@
+- Do not rewrite the motor register or hardware saved configurations.
+- Do not over complicate things and do the least changes.
+- Only write test that matters and avoid redundant checks.
+- Do not add flacky tests with timouts and unreliable dependencies.
+- Do not make assumptions about the initial state of the hardware.
+- Do not write tests including hardware movements.
+- You are dealing with hardware, an S101 arm that have limited range of motion and specific constraints.
+- Always consider the safety of the hardware and avoid actions that could cause damage.
+- If a script reaches +300 lines, consider breaking it into smaller, manageable, reusable parts.

@@ -1,8 +1,8 @@
 {
- "shoulder_pan": -11.78,
- "shoulder_lift": -45.98,
+ "shoulder_pan": 41.14,
+ "shoulder_lift": -45.8,
  "elbow_flex": 83.12,
- "wrist_flex": 81.1,
- "wrist_roll": -12.35,
- "gripper": 2.8
+ "wrist_flex": 57.8,
+ "wrist_roll": -0.4,
+ "gripper": 2.57
 }

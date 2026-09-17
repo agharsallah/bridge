@@ -3,6 +3,7 @@
 #
 #   scripts/chess.sh teach                 # start the guided teaching session for the board
 #   scripts/chess.sh done                  # record the current teaching step and move on
+#   scripts/chess.sh reach                 # teach by hand the squares the model says it cannot reach
 #   scripts/chess.sh free | engage         # torque off / on while teaching
 #   scripts/chess.sh compile               # fit the board, print the 64-square reachability report
 #   scripts/chess.sh verify                # drive the arm to every taught point (arm moves!)
@@ -35,6 +36,7 @@ PY
 cmd=${1:-state}
 case "$cmd" in
   teach)   send '{"action":"teach_start","session":"chess_board"}'; tail -2 var/bridge.log ;;
+  reach)   send '{"action":"teach_reach"}'; sleep 0.8; tail -3 var/bridge.log ;;
   done)    send '{"action":"teach_done"}'; sleep 0.3; tail -2 var/bridge.log ;;
   skip)    send '{"action":"teach_skip"}' ;;
   back)    send '{"action":"teach_back"}' ;;

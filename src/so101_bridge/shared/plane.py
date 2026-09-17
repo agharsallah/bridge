@@ -325,14 +325,22 @@ class PlaneModel:
         return {"shoulder_pan": pan, "shoulder_lift": o1 + math.degrees(a1) / s1,
                 "elbow_flex": o2 + math.degrees(a2) / s2, "wrist_flex": o3 + math.degrees(a3) / s3}
 
-    def _within_limits(self, pose):
-        return all(self.limits.get(j, (-1e9, 1e9))[0] <= val <= self.limits.get(j, (-1e9, 1e9))[1] for j, val in pose.items())
+    def _within_limits(self, pose, allow=None):
+        for j, val in pose.items():
+            lo, hi = self.limits.get(j, (-1e9, 1e9))
+            if allow and j in allow:                       # demonstrated by hand at this point: no further
+                lo, hi = min(lo, allow[j][0]), max(hi, allow[j][1])
+            if not lo <= val <= hi: return False
+        return True
 
-    def uv_to_pose(self, u, v, z_cm=0.0, check_limits=True, lean=None, max_dev_deg=None):
+    def uv_to_pose(self, u, v, z_cm=0.0, check_limits=True, lean=None, max_dev_deg=None, allow=None):
         """Joint pose putting the tool tip at surface (u, v) cm, z_cm above it, at or near the taught pitch.
 
         ``lean`` overrides the preferred pitch (radians from vertical-down, the chain's convention); the
         search still walks outwards from it. Returns None when nothing inside the joint limits reaches.
+
+        ``allow`` is ``{joint: [lo, hi]}`` this one point may use instead of the soft limit — the range
+        the operator has actually driven the arm through at this spot, and nowhere else.
         """
         if not self.ok: return None
         x, y = self._apply_h(self.Hinv, u, v)
@@ -344,7 +352,7 @@ class PlaneModel:
         for cand in self._lean_candidates(window, phi, max_dev_deg):
             pose = self._pose_at_lean(r, z, pan, cand)
             if pose is None: continue
-            if check_limits and self.limits and not self._within_limits(pose): continue
+            if check_limits and self.limits and not self._within_limits(pose, allow): continue
             return {j: round(val, 3) for j, val in pose.items()}
         return None
 

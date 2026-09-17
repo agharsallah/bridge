@@ -177,11 +177,35 @@ class TeachSession:
     def _advance(self):
         self.i += 1
         if self.i >= len(self.steps):
+            extra = self._extra_steps()
+            if extra:
+                self.steps = self.steps + extra
+                log(f"teach: {self.name} continues with {len(extra)} more step(s): {', '.join(s['id'] for s in extra)}")
+                return self.state()
             self.i = len(self.steps) - 1; self.finished = True
             missing = [s["id"] for s in self.steps if s["id"] not in self.recorded and s.get("kind") != "note"]
             self.message = "session complete" + (f" — not recorded: {', '.join(missing)}" if missing else "")
             log(f"teach: session {self.name} finished ({len(self.recorded)}/{len(self.steps)} recorded)")
+            hook = getattr(self.store, "on_finish", None)
+            if hook is not None:
+                try: hook(self.store.load(), self, self.ctrl)
+                except Exception as e: log(f"teach: {self.name} on_finish failed: {e}")
         return self.state()
+
+    def _extra_steps(self):
+        """Steps the domain only knows it needs once the scripted ones are in.
+
+        The chess session uses it to send the operator back to the squares the fitted model says it
+        cannot reach: whether the arm really cannot get there is a question about the arm, and the
+        answer is in the operator's hands, not in the model. Skipped steps are not asked for again.
+        """
+        hook = getattr(self.store, "teach_extra_steps", None)
+        if hook is None: return []
+        have = {s["id"] for s in self.steps} | set(self.skipped)
+        try:
+            return [s for s in (hook(self.store.load(), self.ctrl) or []) if s.get("id") not in have]
+        except Exception as e:
+            log(f"teach: {self.name} extra steps failed: {e}"); return []
 
 
 def _at(cfg, dotted):
@@ -208,10 +232,31 @@ def start(ctrl, name):
     return ctrl.teach
 
 
+def reach(ctrl, store_name="chess"):
+    """A session made only of the steps the domain still wants — for chess, the out-of-reach squares.
+
+    The same steps a full session ends with, on their own, so a board taught before this existed can be
+    revisited without re-teaching the corners.
+    """
+    if ctrl.routine_thread is not None and ctrl.routine_thread.is_alive():
+        log("teach: a routine is running (ABORT first)"); return None
+    mod = _store(store_name)
+    hook = getattr(mod, "teach_extra_steps", None)
+    steps = (hook(mod.load(), ctrl) or []) if hook is not None else []
+    if not steps:
+        log(f"teach: {store_name} has nothing out of reach — no session started"); return None
+    ctrl.teach = TeachSession(ctrl, {"name": f"{store_name}_reach", "label": "Squares the model cannot reach",
+                                     "store": store_name, "steps": steps})
+    return ctrl.teach
+
+
 def command(ctrl, action, **kw):
     """Dispatch a ``teach_*`` action. Returns the session state, or None when there is no session."""
     if action == "teach_start":
         s = start(ctrl, kw.get("session") or kw.get("name"))
+        return s.state() if s else None
+    if action == "teach_reach":
+        s = reach(ctrl, kw.get("store", "chess"))
         return s.state() if s else None
     if action == "teach_free":
         ctrl.request({"action": "release", "src": "teach"}); return _state(ctrl)

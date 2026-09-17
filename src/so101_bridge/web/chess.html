@@ -50,10 +50,35 @@ img.prev{max-width:100%;border:1px solid var(--line);border-radius:8px;image-ren
 .pill{display:inline-block;padding:2px 7px;border-radius:999px;border:1px solid var(--line);font-size:10px;color:var(--dim);margin:2px 3px 2px 0}
 .pill.done{border-color:#2ea043;color:#9be9a8}.pill.skip{border-color:#7d6a22;color:#e3c56b}
 #need{display:none;background:#3a2410;border:1px solid var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:10px}
-.board{display:grid;grid-template-columns:repeat(8,1fr);gap:0;max-width:400px;border:2px solid var(--line);border-radius:6px;overflow:hidden}
+.boardwrap{display:grid;grid-template-columns:15px 1fr;grid-template-rows:1fr 15px;gap:3px;max-width:420px}
+.board{display:grid;grid-template-columns:repeat(8,1fr);gap:0;border:2px solid var(--line);border-radius:6px;overflow:hidden}
+.branks{display:grid;grid-template-rows:repeat(8,1fr)}
+.bfiles{display:grid;grid-template-columns:repeat(8,1fr);grid-column:2/3;grid-row:2/3}
+.branks div,.bfiles div{display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--dim);font-family:ui-monospace,Menlo,monospace}
 .bsq{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:26px;line-height:1;position:relative}
 .bsq.light{background:#3b4250}.bsq.dark{background:#232935}
-.bsq.last{box-shadow:inset 0 0 0 3px var(--accent)}
+.bsq.m-from{box-shadow:inset 0 0 0 3px var(--warn)}
+.bsq.m-to{box-shadow:inset 0 0 0 3px var(--accent)}
+.bsq.m-captured{box-shadow:inset 0 0 0 3px var(--bad)}
+.bsq.m-check{box-shadow:inset 0 0 0 3px var(--bad),inset 0 0 20px #f8514977}
+.tray{display:flex;flex-wrap:wrap;gap:1px;align-items:center;min-height:22px;font-size:18px;line-height:1;max-width:420px}
+.tray .lbl{color:var(--dim);font-size:10px;margin-right:6px;text-transform:uppercase;letter-spacing:.8px}
+.tl{display:flex;flex-direction:column;gap:3px;max-height:430px;overflow:auto;padding-right:4px}
+.tlr{display:grid;grid-template-columns:32px 26px 1fr auto;gap:8px;align-items:center;background:var(--panel2);
+  border:1px solid var(--line);border-left:3px solid var(--line);border-radius:8px;padding:6px 9px}
+.tlr.white{border-left-color:#e6edf3}.tlr.black{border-left-color:#6e7681}
+.tlr.now{border-color:var(--accent);background:#0d2440}
+.tlr .num{color:var(--dim);font-size:11px;font-family:ui-monospace,Menlo,monospace}
+.tlr .pc{font-size:21px;line-height:1;text-align:center}
+.tlr .pc.wh{color:#f6f8fa}.tlr .pc.bl{color:#9aa4b0}   /* the filled glyph is the black piece: it still needs to be readable on a dark row */
+.tlr .san{font-weight:700;font-family:ui-monospace,Menlo,monospace}
+.tlr .mv{color:var(--dim);font-size:11px;font-family:ui-monospace,Menlo,monospace}
+.tlr .meta{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;font-size:10px;align-items:center}
+.tag2{border:1px solid var(--line);border-radius:999px;padding:1px 7px;color:var(--dim);white-space:nowrap}
+.tag2.robot{border-color:#1f6feb;color:#79c0ff}.tag2.hand{border-color:#7d6a22;color:#e3c56b}
+.tag2.good{border-color:#2ea043;color:#9be9a8}.tag2.bad{border-color:#f85149;color:#ffb3b0}
+.trace{grid-column:3/-1;display:flex;gap:4px;flex-wrap:wrap;font-size:10px;color:var(--dim);margin-top:4px}
+.trace span{background:#0b0f14;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-family:ui-monospace,Menlo,monospace}
 .bsq .nm{position:absolute;left:2px;top:1px;font-size:8px;color:#ffffff55;font-family:ui-monospace,Menlo,monospace}
 .bsq .w{color:#f6f8fa;text-shadow:0 0 2px #000,0 1px 2px #000}
 .bsq .b{color:#15191f;text-shadow:0 0 2px #fff8,0 1px 2px #0008}
@@ -156,9 +181,12 @@ pre.pose{background:var(--panel2);border:1px solid var(--line);border-radius:8px
 
   <!-- ---------------------------------------------------------------- camera -->
   <section class="card span6">
-    <h2>Overhead view</h2>
-    <div class=cam><img id=camimg src="/chess/top.mjpg"><div class=tag id=camtag>top</div></div>
-    <p class=small>Click the centre of <b id=pickname>a1</b> to teach the image corners (a1 → h1 → h8 → a8).
+    <h2>Cameras</h2>
+    <div class=cams>
+      <div class=cam><img id=camimg src="/chess/top.mjpg"><div class=tag id=camtag>top</div></div>
+      <div class=cam><img id=camimg2 src="/wrist.mjpg"><div class=tag id=camtag2>wrist</div></div>
+    </div>
+    <p class=small>Click the centre of <b id=pickname>a1</b> on the board view (left) to teach the image corners (a1 → h1 → h8 → a8).
       <button class=sm onclick="picking=[];pickAt=0;draw()">Restart picking</button>
       <span id=pickstate></span></p>
   </section>
@@ -166,9 +194,17 @@ pre.pose{background:var(--panel2);border:1px solid var(--line);border-radius:8px
   <!-- ---------------------------------------------------------------- position -->
   <section class="card span6">
     <h2>Position <span class=small id=b_turn></span></h2>
-    <div class=board id=boardview></div>
+    <div class=tray id=tray_black><span class=lbl>white took</span></div>
+    <div class=boardwrap>
+      <div class=branks id=branks></div>
+      <div class=board id=boardview></div>
+      <div class=bfiles id=bfiles></div>
+    </div>
+    <div class=tray id=tray_white><span class=lbl>black took</span></div>
     <p class=small>Drawn from the FEN, in the robot's own view — its own back rank is the bottom row.
-      The last move is outlined.</p>
+      Last move: <span class=warn>amber</span> where the piece came from, <span style="color:var(--accent)">blue</span>
+      where it went, <span class=no>red</span> the square a captured piece was lifted from or a king in check.
+      <b id=b_mat></b></p>
   </section>
 
   <!-- ---------------------------------------------------------------- what the camera sees -->
@@ -185,7 +221,7 @@ pre.pose{background:var(--panel2);border:1px solid var(--line);border-radius:8px
   <!-- ---------------------------------------------------------------- arm side view -->
   <section class="card span6">
     <h2>Arm and board, side view</h2>
-    <canvas id=side height=280></canvas>
+    <canvas id=sideview height=280></canvas>
     <p class=small>To scale, as the floor model sees it. Dashed lines: the taught board plane and the
       grasp / hover / carry heights above it.</p>
   </section>
@@ -236,9 +272,13 @@ pre.pose{background:var(--panel2);border:1px solid var(--line);border-radius:8px
       <button class=sm onclick="cmd({action:'chess_confirm'})">Confirm</button>
     </div>
     <div id=game class=small style="margin-top:8px"></div>
-    <table id=movetab><thead><tr><th>ply</th><th>by</th><th>move</th><th>played by</th><th>verify</th>
-      <th>time</th><th>arm</th></tr></thead><tbody id=moves></tbody></table>
-    <pre id=pgn class="mono small" style="white-space:pre-wrap"></pre>
+    <h3>Move history <span class=small id=m_count></span></h3>
+    <div class=tl id=moves></div>
+    <p class=small>Oldest first, one row per ply: who chose the move, the piece, where it came from and went,
+      what it took, who put it there and what the camera said afterwards. The chips under a row are the arm's
+      own pick/place chain for that move.</p>
+    <details id=pgnwrap><summary class=small>PGN</summary>
+      <pre id=pgn class="mono small" style="white-space:pre-wrap"></pre></details>
   </section>
 </main>
 
@@ -248,6 +288,17 @@ const val = id => $(id).value.trim();
 const sel = id => $(id).value;
 let S = {}, picking = [], pickAt = 0;
 const PICK = ["a1", "h1", "h8", "a8"];
+// what a game is waiting for, said the way the operator would say it
+const NEEDS = {
+  ambiguous: "The camera cannot tell which move was played",
+  promotion: "A promotion needs its piece chosen",
+  verify_failed: "The board does not match the position after that move",
+  unreachable: "The arm cannot reach that move — play it by hand",
+  illegal_move: "That move is not legal in this position",
+  grasp_failed: "The arm did not finish the move",
+  off_book: "The move on the board is not the one expected",
+  feed: "A piece is needed from the feed slot",
+};
 
 function c(a, q = "") { fetch(`/cmd?a=${a}${q}`); }
 function cmd(obj) { fetch("/chess/cmd", {method: "POST", body: JSON.stringify(obj)}).then(load); }
@@ -277,8 +328,11 @@ function draw() {
        gripper ${m.gripper_len_cm} cm · board plane ${m.board_z_cm} cm · flatness ${m.flatness_mm} mm
        ${(m.warnings || []).map(w => `<div class=warn>⚠ ${w}</div>`).join("")}`
     : `<span class=no>not fitted</span> — ${m.error || "teach the four corners"}`;
-  $("camtag").textContent = b.cam || "top";
-  $("camimg").src = `/chess/${b.cam || "top"}.mjpg`;
+  const boardCam = b.cam || "top", otherCam = boardCam === "top" ? "wrist" : "top";
+  $("camtag").textContent = `${boardCam} — board`;
+  $("camimg").src = `/chess/${boardCam}.mjpg`;
+  $("camtag2").textContent = `${otherCam} — arm`;
+  if (!$("camimg2").src.endsWith(`/${otherCam}.mjpg`)) $("camimg2").src = `/${otherCam}.mjpg`;
 
   // reachability
   const rep = S.reach || {};
@@ -319,34 +373,49 @@ function draw() {
     : "no game yet";
   const need = g && g.needs;
   $("need").style.display = need ? "block" : "none";
-  if (need) $("need").innerHTML = `<b>needs: ${need.kind}</b> — ${need.hint || ""}
-      <div class=mono>${JSON.stringify(need)}</div>`;
+  if (need) {
+    const bits = [];
+    if (need.san || need.move) bits.push(`move ${need.san || ""} ${need.move ? "(" + need.move + ")" : ""}`);
+    if ((need.squares || []).length) bits.push(`squares ${need.squares.join(" ")}`);
+    if ((need.why || []).length) bits.push(need.why.join("; "));
+    if (need.detail) bits.push(need.detail);
+    if (need.since) bits.push(`since ${need.since}`);
+    $("need").innerHTML = `<b>${NEEDS[need.kind] || need.kind}</b>${need.hint ? " — " + need.hint : ""}
+      <div class=small>${bits.join(" · ")}</div>`;
+  }
   $("pgn").textContent = S.pgn || "";
+  $("pgnwrap").style.display = (S.moves || []).length ? "block" : "none";
 
   $("pickname").textContent = PICK[pickAt] || "done";
   $("pickstate").textContent = picking.length ? `${picking.length}/4 picked` : "";
 
-  drawBoard();
-  drawCamera();
-  drawSide();
-  drawPose();
-  drawLearning();
-  drawSuggestions();
-  drawMoves();
+  // each panel draws on its own: one that throws must not take the rest of the page down with it
+  [drawBoard, drawCamera, drawSide, drawPose, drawLearning, drawSuggestions, drawMoves]
+    .forEach(fn => { try { fn(); } catch (e) { console.error(fn.name, e); } });
 }
 
 /* ---------- the position, in the robot's own view ---------- */
 function drawBoard() {
   const b = S.board;
   if (!b) { $("boardview").innerHTML = ""; return; }
-  const last = ((S.game || {}).last_move || {}).uci || "";
-  const lastSquares = [last.slice(0, 2), last.slice(2, 4)];
   $("b_turn").textContent = `· ${b.turn} to move${b.check ? " · check" : ""}`;
+  $("branks").innerHTML = (b.ranks || []).map(r => `<div>${r}</div>`).join("");
+  $("bfiles").innerHTML = (b.files || []).map(f => `<div>${f}</div>`).join("");
   $("boardview").innerHTML = b.squares.map(sq => {
-    const mark = lastSquares.includes(sq.name) ? " last" : "";
     const glyph = sq.glyph ? `<span class="${sq.colour === "white" ? "w" : "b"}">${sq.glyph}</span>` : "";
-    return `<div class="bsq ${sq.light ? "light" : "dark"}${mark}"><span class=nm>${sq.name}</span>${glyph}</div>`;
+    return `<div class="bsq ${sq.light ? "light" : "dark"}${sq.mark ? " m-" + sq.mark : ""}" title="${sq.name}">${glyph}</div>`;
   }).join("");
+  const cap = b.captured || {white: [], black: []};
+  tray("tray_black", "white took", cap.black);
+  tray("tray_white", "black took", cap.white);
+  const diff = (b.material || {}).diff || 0;
+  $("b_mat").textContent = diff ? (diff > 0 ? `White is up ${diff}.` : `Black is up ${-diff}.`) : "Material is even.";
+}
+
+function tray(id, label, pieces) {
+  $(id).innerHTML = `<span class=lbl>${label}</span>` + (pieces.length
+    ? pieces.map(p => `<span class="${p.piece === p.piece.toUpperCase() ? "w" : "b"}" title="${p.value}">${p.glyph}</span>`).join("")
+    : "<span class=small>nothing yet</span>");
 }
 
 /* ---------- what the camera sees, against what should be there ---------- */
@@ -362,12 +431,13 @@ function drawCamera() {
     return `<div class="csq ${cls}" title="${cell.name}: diff ${cell.diff}${cell.colour ? ", " + cell.colour : ""}">` +
            `${cell.name}<br>${cell.seen ? (cell.colour === "black" ? "\u25cf" : "\u25cb") : ""}</div>`;
   }).join("");
+  $("warp").style.display = cam.ok ? "block" : "none";
   if (cam.ok) $("warp").src = "/chess/warp.jpg?t=" + Date.now();
 }
 
 /* ---------- side view: the arm, the board plane and the working heights (metres -> cm) ---------- */
 function drawSide() {
-  const cv = $("side"), sv = S.side || {};
+  const cv = $("sideview"), sv = S.side || {};
   const w = cv.clientWidth, h = 280, dpr = devicePixelRatio || 1;
   cv.width = w * dpr; cv.height = h * dpr;
   const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -496,17 +566,35 @@ function applySug(id) {
   cmd({action: "chess_apply", id});
 }
 
-/* ---------- move list ---------- */
+/* ---------- the move history: chronological, one row per ply ---------- */
 function drawMoves() {
-  const moves = S.moves || [];
-  $("moves").innerHTML = moves.slice().reverse().map(m => {
+  const moves = S.moves || [], el = $("moves");
+  const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  $("m_count").textContent = moves.length ? `· ${moves.length} plies` : "";
+  el.innerHTML = moves.map((m, i) => {
     const v = m.verify || "";
-    const cls = v === "ok" ? "ok" : (v && v !== "assumed" && v !== "unchecked" ? "no" : "small");
-    const ex = m.exec ? `${m.exec.seconds}s, ${m.exec.steps} steps` : "";
-    return `<tr><td class=mono>${m.ply}</td><td>${m.by}</td><td class=mono><b>${m.san}</b> ${m.uci}</td>
-      <td>${m.executed_by || ""}</td><td class="${cls}">${v}</td><td class=small>${m.time || ""}</td>
-      <td class=small>${ex}</td></tr>`;
-  }).join("");
+    const vc = v === "ok" ? "good" : (v && v !== "assumed" && v !== "unchecked" ? "bad" : "");
+    const cap = m.capture
+      ? `<span class="tag2 bad">takes ${m.capture.glyph || ""} ${m.capture.name || ""} on ${m.capture.square}</span>` : "";
+    const flags = (m.flags || []).filter(f => f !== "capture")
+      .map(f => `<span class="tag2${f === "mate" ? " bad" : ""}">${f}</span>`).join("");
+    const arm = m.exec ? `${m.exec.seconds}s · ${m.exec.grips} grips` : (m.gap_s != null ? `+${m.gap_s}s` : "");
+    const trace = (m.trace || []).length
+      ? `<div class=trace>${m.trace.map(t => `<span>${t}</span>`).join("")}</div>` : "";
+    return `<div class="tlr ${m.side}${i === moves.length - 1 ? " now" : ""}">
+      <div class=num>${m.side === "white" ? m.no + "." : ""}</div>
+      <div class="pc ${m.side === "white" ? "wh" : "bl"}" title="${m.piece_name || ""}">${m.glyph || ""}</div>
+      <div><span class=san>${m.san || m.uci || ""}</span>
+        <span class=mv>${m.from || "?"}\u2192${m.to || "?"}</span> ${cap} ${flags}</div>
+      <div class=meta>
+        <span class=tag2 title="who chose the move">${m.by || "?"}</span>
+        <span class="tag2 ${m.executed_by === "robot" ? "robot" : "hand"}"
+              title="who put the piece there">${m.executed_by === "robot" ? "arm" : "by hand"}</span>
+        ${v ? `<span class="tag2 ${vc}" title="what the camera said afterwards">${v}</span>` : ""}
+        <span class=mv>${m.time || ""}${arm ? " · " + arm : ""}</span>
+      </div>${trace}</div>`;
+  }).join("") || "<span class=small>No moves yet.</span>";
+  if (stick) el.scrollTop = el.scrollHeight;
 }
 
 function goto(sq) { cmd({action: "chess_goto", square: sq, z: +val("gotoz")}); }
