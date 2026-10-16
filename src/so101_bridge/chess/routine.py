@@ -75,14 +75,17 @@ def _wait_for(ctrl, predicate, timeout=600.0, poll=0.2):
 
 
 def _snapshot(ctrl, name):
-    """Save the newest overhead frame under var/steps/ so a step can be looked at afterwards. Silent if no camera."""
-    frame = _frame(ctrl)
-    if frame is None: return
+    """Save the newest overhead AND wrist frames under var/steps/ so a step can be judged before it runs
+    (the wrist view shows whether the piece sits between the jaws). Silent for a camera that has no frame."""
     try:
         import cv2
         from ..paths import VAR_DIR
         out = VAR_DIR / "steps"; out.mkdir(exist_ok=True)
-        cv2.imwrite(str(out / f"{time.strftime('%H%M%S')}_{name.replace(' ', '_')}.jpg"), frame)
+        for cam in (CHESS_CAM, "wrist"):
+            frame = ctrl.latest_frame(cam, max_age_s=3.0)
+            if frame is None: continue
+            cv2.imwrite(str(out / f"{time.strftime('%H%M%S')}_{name.replace(' ', '_')}_{cam}.jpg"), frame)
+            cv2.imwrite(str(out / f"latest_{cam}.jpg"), frame)
     except Exception as e:
         log(f"chess: step snapshot failed: {e}")
 

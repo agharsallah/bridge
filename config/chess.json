@@ -86,7 +86,7 @@
    "grasp_z_cm": 1.15,
    "lean_deg": 16.5,
    "open": 26.0,
-   "close": 7.5,
+   "close": 5.5,
    "stall_min": 8.5,
    "height_cm": 3.0,
    "grasp_pose": {
@@ -102,7 +102,7 @@
    "grasp_z_cm": 2.77,
    "lean_deg": 17.5,
    "open": 22.0,
-   "close": 5.0,
+   "close": 3.0,
    "stall_min": 5.8,
    "height_cm": 4.0,
    "grasp_pose": {
@@ -118,8 +118,8 @@
    "grasp_z_cm": 2.89,
    "lean_deg": 18.1,
    "open": null,
-   "close": 10.9,
-   "stall_min": 12,
+   "close": 8.0,
+   "stall_min": 9.0,
    "height_cm": 5.0,
    "grasp_pose": {
     "shoulder_pan": -4.4,
@@ -134,8 +134,8 @@
    "grasp_z_cm": 2.83,
    "lean_deg": 17.9,
    "open": null,
-   "close": 11.0,
-   "stall_min": 12,
+   "close": 8.0,
+   "stall_min": 9.0,
    "height_cm": 3.5,
    "grasp_pose": {
     "shoulder_pan": -4.13,
@@ -149,9 +149,9 @@
   "q": {
    "grasp_z_cm": 3.22,
    "lean_deg": 18.8,
-   "open": null,
-   "close": 12.3,
-   "stall_min": 12,
+   "open": 26.0,
+   "close": 9.0,
+   "stall_min": 10.0,
    "height_cm": 5.5,
    "grasp_pose": {
     "shoulder_pan": -3.87,
@@ -166,8 +166,8 @@
    "grasp_z_cm": 2.93,
    "lean_deg": 17.9,
    "open": null,
-   "close": 11.8,
-   "stall_min": 12,
+   "close": 8.5,
+   "stall_min": 9.5,
    "height_cm": 6.0,
    "grasp_pose": {
     "shoulder_pan": -5.8,
