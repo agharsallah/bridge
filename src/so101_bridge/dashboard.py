@@ -22,6 +22,8 @@ from .chess.log import GameLog
 from .controller import Controller
 from .floor import FLOOR_MARGIN, GRASP_Z
 from .initialisation import session as init_session
+from .lab import LABS, discover
+from .lab import http as lab_http
 from .paint import kinematics as paint_kin
 from .paint import planner as paint_planner
 from .paint import program as paint_program
@@ -36,6 +38,7 @@ PAGE = (Path(__file__).parent / "web" / "dashboard.html").read_bytes()
 PAINT_PAGE = (Path(__file__).parent / "web" / "paint.html").read_bytes()
 CHESS_PAGE = (Path(__file__).parent / "web" / "chess.html").read_bytes()
 INIT_PAGE = (Path(__file__).parent / "web" / "init.html").read_bytes()
+discover()                                   # register every lab in so101_bridge/labs/ (docs/lab.md)
 
 
 def _json(handler, obj, status=200):
@@ -298,6 +301,7 @@ def make_handler(ctrl: Controller):
             u = urlparse(self.path)
             n = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(n) if n else b""
+            if lab_http.handle(self, ctrl, LABS, "POST", u, body): return
             if u.path == "/init/cmd":
                 try: res = init_cmd(json.loads(body or b"{}"))
                 except Exception as e:
@@ -318,6 +322,7 @@ def make_handler(ctrl: Controller):
 
         def do_GET(self):
             u = urlparse(self.path)
+            if lab_http.handle(self, ctrl, LABS, "GET", u): return
             if u.path == "/" and init_session.SESSION is not None:   # init mode: nothing else works
                 self.send_response(302); self.send_header("Location", "/init"); self.end_headers()
             elif u.path == "/init":

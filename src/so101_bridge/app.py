@@ -15,12 +15,12 @@ import traceback
 from pathlib import Path
 
 from . import dashboard, hardware, paths, vision
+from . import tool as tool_mod
 from .chess import kinematics as chess_kin
 from .chess import physical as chess_phys
 from .chess import workspace as chess_ws
 from .chess.log import GameLog
 from .controller import Controller
-from .floor import FLOOR_FREEZE, FLOOR_MARGIN
 from .initialisation import calibration as init_calib
 from .initialisation import session as init_session
 from .paint import kinematics as paint_kin
@@ -211,6 +211,8 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
     def guard_point(target_pose, ref, src, allow=None):
         """Step cap, soft limits and floor guard for one goal pose relative to a reference pose."""
         out = dict(ref)
+        target_pose, locked = tool_mod.lock_gripper(target_pose, ctrl.tool, src)
+        if locked: ctrl.event("TOOL LOCK", f"gripper held on the {ctrl.tool['name']} ({src})")
         for j, v in target_pose.items():
             if j not in JOINTS: log(f"unknown joint {j}"); continue
             target = float(v)
@@ -224,10 +226,10 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
         if ctrl.floor.params is not None and src != "floor_ok":
             for frac in (1.0, 0.75, 0.5, 0.25, 0.0):
                 trial = {j: ref[j] + frac * (out[j] - ref[j]) for j in JOINTS}
-                zt = ctrl.floor.z(trial)
-                if zt is not None and zt >= FLOOR_MARGIN: break
+                if tool_mod.table_ok(ctrl.floor, trial, ctrl.tool): break
             if frac < 1.0:
-                ctrl.event("FLOOR GUARD", f"goal would put the tips at {ctrl.floor.z(out) * 100:.1f} cm -> step scaled to {frac:.2f} ({src})")
+                what, zw = tool_mod.worst(ctrl.floor, out, ctrl.tool)
+                ctrl.event("FLOOR GUARD", f"goal would put the {what} at {zw * 100:.1f} cm -> step scaled to {frac:.2f} ({src})")
                 for j in ARM: out[j] = trial[j]
         return out
 
@@ -253,7 +255,9 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
         path_queue = []
         if not torque_on:
             robot.bus.enable_torque(num_retry=5); torque_on = True; cmd = dict(present)
-        for j, v in c.get("goal", {}).items():
+        want, locked = tool_mod.lock_gripper(c.get("goal", {}), ctrl.tool, c.get("src"))
+        if locked: ctrl.event("TOOL LOCK", f"gripper held on the {ctrl.tool['name']} ({c.get('src', 'file')})")
+        for j, v in want.items():
             if j not in JOINTS: log(f"unknown joint {j}"); continue
             target = present[j] + float(v) if c.get("relative") else float(v)
             if j != "gripper" and abs(target - present[j]) > MAX_STEP_DEG:
@@ -267,10 +271,10 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
         if ctrl.floor.params is not None and c.get("src") != "floor_ok":
             for frac in (1.0, 0.75, 0.5, 0.25, 0.0):
                 trial = {j: present[j] + frac * (goal[j] - present[j]) for j in JOINTS}
-                zt = ctrl.floor.z(trial)
-                if zt is not None and zt >= FLOOR_MARGIN: break
+                if tool_mod.table_ok(ctrl.floor, trial, ctrl.tool): break
             if frac < 1.0:
-                ctrl.event("FLOOR GUARD", f"goal would put the tips at {ctrl.floor.z(goal) * 100:.1f} cm -> step scaled to {frac:.2f}")
+                what, zw = tool_mod.worst(ctrl.floor, goal, ctrl.tool)
+                ctrl.event("FLOOR GUARD", f"goal would put the {what} at {zw * 100:.1f} cm -> step scaled to {frac:.2f}")
                 for j in ARM: goal[j] = trial[j]
         s = c.get("speed")
         if s is not None:
@@ -407,9 +411,10 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     last_load_warn = time.time(); log(f"load warning while holding: {hot}")
             # ---- floor guard (runtime): predicted tip height below the table plane -> freeze
             zp = ctrl.floor.z(present)
-            if zp is not None and torque_on and mode == "moving" and zp < FLOOR_FREEZE:
+            why = tool_mod.frozen(ctrl.floor, present, ctrl.tool) if torque_on and mode == "moving" else None
+            if why:
                 path_queue = []; goal, cmd, mode = dict(present), dict(present), "stalled"; ctrl.abort_auto("floor guard")
-                ctrl.event("FLOOR FREEZE", f"predicted tip height {zp * 100:.1f} cm")
+                ctrl.event("FLOOR FREEZE", why)
             # ---- stall guard
             if torque_on and mode == "moving":
                 lag = {j: abs(cmd[j] - present[j]) for j in ARM}; worst = max(lag, key=lag.get)
@@ -468,7 +473,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                     if paint_jpeg:
                         with ctrl.lock: ctrl.paint_jpeg[n] = paint_jpeg
                 with ctrl.lock: ctrl.blob = blobs
-                ctrl.video.write(frames)
+                ctrl.video.write(frames, raw={n: obs.get(n) for n in CAMS})
 
             if loop_i % 3 == 0:            # ~10 Hz trajectory log while recording
                 ctrl.rec_write({"time": time.strftime("%H:%M:%S"), "mode": mode, "torque": torque_on,
@@ -481,7 +486,7 @@ def control_loop(robot, ctrl: Controller, limits, max_iters=None):
                       "goal": {k: round(v, 2) for k, v in goal.items()}, "cmd": {k: round(v, 2) for k, v in cmd.items()},
                       "speed": speed, "limits": {k: [round(a, 1), round(b, 1)] for k, (a, b) in limits.items()},
                       "last_cmd": last_cmd_name, "estop": ESTOP.exists(),
-                      "tip_z_cm": round(zp * 100, 1) if zp is not None else None,
+                      "tip_z_cm": round(zp * 100, 1) if zp is not None else None, "tool": ctrl.tool,
                       "load": last_loads, "load_limit": LOAD_LIMIT, "loop_hz": round(loop_hz, 1),
                       "path": {"remaining": len(path_queue), "total": path_total} if (path_queue or mode == "moving") and path_total else None,
                       "auto": ctrl.routine_status,

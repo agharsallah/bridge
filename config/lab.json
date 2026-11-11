@@ -1,0 +1,26 @@
+{
+ "points": {},
+ "rest": {
+  "shoulder_pan": -4.04,
+  "shoulder_lift": -44.66,
+  "elbow_flex": 83.21,
+  "wrist_flex": 63.08,
+  "wrist_roll": -1.63,
+  "gripper": 3.12
+ },
+ "envelope": {},
+ "motion": {
+  "speed": 4.0,
+  "jog_step": 1.0
+ },
+ "video": {
+  "dir": "var/videos/lab",
+  "raw": true
+ },
+ "cameras": {
+  "width": 960,
+  "quality": 70,
+  "fps": 10
+ },
+ "updated": "2026-11-11 12:32:31"
+}

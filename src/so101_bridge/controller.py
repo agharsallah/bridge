@@ -11,6 +11,7 @@ import time
 from collections import deque
 
 from . import settings
+from . import tool as tool_mod
 from .floor import FloorModel
 from .paths import REC_DIR, REST_FILE, WP_FILE
 from .poses import RETREAT, P, load_rest
@@ -37,6 +38,7 @@ class Controller:
         self.floor = FloorModel()
         self.video = VideoRecorder()
         self.teach = None            # the running guided-teaching session (shared/teach.py), or None
+        self.tool = tool_mod.load()  # the tool held in the gripper (tool.py): the table guard watches its tip too
         self.chess_request = None    # what the next chess routine should do (set by the dashboard / a file command)
         self.chess_reader = None     # the calibrated board reader: shared by the routine and the /chess page,
                                      # because its empty-board reference and fitted thresholds are expensive
@@ -171,6 +173,16 @@ class Controller:
             self.routine_status = "rest: " + ("done" if ok else "interrupted"); log(self.routine_status)
         self.routine_thread = threading.Thread(target=run, daemon=True); self.routine_thread.start()
 
+    def mount_tool(self, tool):
+        """From now on the table guard watches the tool tip and the gripper is locked (see tool.py)."""
+        self.tool = tool_mod.save(tool_mod.normalize(tool))
+        log(f"TOOL mounted: {self.tool}"); self.event("TOOL", f"{self.tool['name']} mounted ({self.tool['out_cm']} cm out)")
+        return self.tool
+
+    def unmount_tool(self):
+        if self.tool: log(f"TOOL unmounted: {self.tool['name']}"); self.event("TOOL", f"{self.tool['name']} unmounted")
+        self.tool = tool_mod.save(None)
+
     def request(self, cmd: dict):
         with self.lock:
             self.pending.append(cmd)
@@ -251,8 +263,8 @@ class Controller:
             if st.get("mode") == "moving" or st.get("estop") or self.routine_abort.is_set(): return
             time.sleep(0.02)
 
-    def goto(self, pose, speed=4.0, timeout=15.0):
-        self.request({"action": "goal", "goal": pose, "speed": speed, "src": "auto"})
+    def goto(self, pose, speed=4.0, timeout=15.0, allow=None):
+        self.request({"action": "goal", "goal": pose, "speed": speed, "src": "auto", **({"allow": allow} if allow else {})})
         self._wait_moving()
         return self.wait_reached(timeout)
 
@@ -270,8 +282,10 @@ class Controller:
             timeout = 10.0 + 2.0 * (travel + 12) / max(speed, 0.5)
         return self.wait_reached(timeout)
 
-    def goto_far(self, pose, speed=4.0, step=10.0):
-        """Reach a pose from anywhere, splitting into <=step deg moves (respects the step cap)."""
+    def goto_far(self, pose, speed=4.0, step=10.0, allow=None):
+        """Reach a pose from anywhere, splitting into <=step deg moves (respects the step cap).
+
+        ``allow`` widens the soft limits for these moves only (see the loop's ``bounds``)."""
         for _ in range(20):
             st, _ = self.snapshot(); pr = st["present"]
             todo = {j: v for j, v in pose.items() if j != "gripper" and abs(v - pr[j]) > 2.5}
@@ -279,7 +293,7 @@ class Controller:
                 if "gripper" in pose and not self.goto({"gripper": pose["gripper"]}, speed): return False
                 return True
             part = {j: pr[j] + max(-step, min(step, v - pr[j])) for j, v in todo.items()}
-            if not self.goto(part, speed): return False
+            if not self.goto(part, speed, allow=allow): return False
         return False
 
     def gripper_to(self, value, speed=15.0):

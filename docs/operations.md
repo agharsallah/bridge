@@ -489,3 +489,63 @@ incomplete, which is what happens when the Hugging Face cache is cleared. Every 
 - The page shows lerobot's own homing diagram, the `so101.mdx` Calibrate section and the CLI equivalent, read
   from the installed lerobot checkout. In normal mode `/init` shows the files, cameras and docs only.
 - Endpoints: `GET /init/state`, `POST /init/cmd {"a": <command>, "confirm": "yes"}`.
+
+## 14. Lab template `/lab` (added 2026-11-11)
+
+Start every new experiment from the lab. It is generic (no paint or chess logic) and safe by construction:
+every move is a request to the control loop, so the step cap, soft limits, table guard, load/stall guards and
+ESTOP all apply. Nothing in a lab sends `src="floor_ok"`.
+
+- **Page**: cameras (raw, no overlays), joints & jog (range track: motor sweep / soft limit / lab envelope /
+  taught points / goal), side view to scale with the table guard, grasp line, reach circle, goal ghost, points
+  and rest, plus a schematic top view (pan). Panels: pending changes, guards (+ guard events), and tabs for
+  points & rest, reach envelope, video, raw state (tree, copy as JSON / path / goal command / Python), API.
+  STOP is the big red button or `Esc`. Free-drive always asks first, and its dialog opens on Cancel.
+- **Staged changes**: points, lab rest, envelope and settings go to `var/lab/lab.pending.json`. They are
+  visible with a diff and can be edited, applied one by one or discarded. Only *Apply* writes `config/lab.json`.
+  Staged points can be visited before they are applied.
+- **Points**: the present pose under a name with a role (reference, calibration, approach, waypoint, contact)
+  and a note. *Go* shows a move preview first (per-joint change, rough time, joints that need the envelope).
+- **Lab rest**: `rest` in `config/lab.json`. *Go to rest* goes up to the high folded pose, then down onto it.
+  When it is unset, the global REST path is used. `config/rest.json` is never written from a lab.
+- **Reach envelope** (points the calibration margin excludes): `envelope.{joint: [lo, hi]}` widens the soft
+  limit for this lab's moves only, through the loop's per-command `allow`. The loop caps it at the motor
+  sweep. No motor register and no `config/limits.json` is written. A taught point always carries its own
+  allowance (±0.5°).
+- **Tool in the gripper** (pen, brush, probe), optional, in the *Tool* tab.
+  - **Definition**: `tool` in `config/lab.json` = name, `length_cm` (whole tool), `out_cm` (the part sticking out past
+    the fingertips), `margin_cm` (the tool tip's own table margin, ≥ −0.5 cm, so ≤ 0 lets a pen touch the paper) and
+    `grip` (the gripper value that holds it; *Use present gripper* records it).
+  - **Mount** (asks first; the definition must be applied): it is saved in `var/tool.json` and survives a restart.
+    From then on the control loop, on **every** page:
+    - watches three points: the fingertips (usual 0.8 cm), the tool tip (its own margin) and the tool's back end
+      (0.8 cm). The tool lies along the gripper axis.
+    - freezes the arm when any of them is predicted 0.8 cm below its margin.
+    - locks the gripper: a goal that would move it is dropped with a `TOOL LOCK` event; only the mount itself closes it.
+  - **Unmount** (asks first): back to the fingertip guard. The jaws stay closed until you open them.
+  - Points recorded while a tool is mounted remember it, and their tip in the side view is the tool tip.
+  - Do not mount a tool for the paint or chess routines: the gripper lock and the tip margin apply to them too.
+- **Cameras**: `/lab/cam/<cam>.mjpg?w=&q=&fps=` streams the raw frames. Each new frame is encoded once and
+  shared by every viewer, only new frames are pushed, and quality is chosen per browser.
+  `/lab/cam/<cam>.jpg` returns one frame. Defaults are in `cameras` in `config/lab.json`.
+- **Video**: `video.dir` (relative to the repo root, default `var/videos/lab`) and `video.raw` (no overlays)
+  in `config/lab.json`. The page shows the exact file path while recording.
+- **API** (the same one the page uses, so scripts and agents get the same guards and staging):
+
+  | endpoint | what |
+  |---|---|
+  | `GET /lab/state` | everything the page draws |
+  | `GET /lab/observe[?images=1]` | compact observation: pose, fingertip, table clearance, points, cameras (+ base64 JPEGs) |
+  | `GET /lab/actions` | every action with params, `moves`, `confirm` (build LLM tool definitions from this) |
+  | `POST /lab/cmd` | `{"action": ..., ...}` -> `{ok, error?, message?, needs_confirm?}`; a `confirm` action must be repeated with `"confirm": "yes"` |
+  | `GET /lab/journal?n=50` | the recent actions |
+  | `GET /labs` | every registered lab (name, title, description, ui module) |
+
+- **Journal**: every action that ran or was refused goes to `var/lab/<lab>.journal.jsonl`. It shows in the
+  *Journal* tab and at `GET /<lab>/journal?n=`, and the last 10 entries are in `/observe`.
+- **More labs**: `make lab NAME=<name> TITLE="..." DESC="..."` scaffolds `labs/<name>.py` and
+  `web/<name>/panels.js`. The lab is discovered at start-up, served at `/<name>` on the shared page with its
+  own tabs, and listed at `GET /labs` (and in the nav).
+
+**The full guide** (anatomy of a lab, moving the arm, staging, panels, cameras, model/LLM hooks, tests, and
+what may go into the template) is in [docs/lab.md](lab.md).

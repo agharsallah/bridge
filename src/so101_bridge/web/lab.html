@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SO-101 Lab</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/lab/lab.css">
+<link rel="stylesheet" href="/static/lab/panels.css">
+</head>
+<body>
+<!-- The shared lab page: every lab uses it unless it sets its own `page`. A lab adds tabs through its
+     `ui` module, not by copying this file (docs/lab.md). -->
+<header class="top">
+  <div class="brand">SO-101 <small>lab template</small></div>
+  <nav class="pages"><a href="/">dashboard</a><a href="/paint">paint</a><a href="/chess">chess</a><a href="/init">init</a><a href="/lab">lab</a></nav>
+  <div class="chips"></div>
+  <div class="safety"></div>
+</header>
+
+<main class="lab">
+  <div class="col">
+    <section class="panel" data-panel="cams">
+      <div class="ph"><h2>Cameras</h2><span class="dim small">raw frames · no processing</span><div class="tools"></div></div>
+      <div class="pb"></div>
+    </section>
+
+    <section class="panel" data-panel="joints">
+      <div class="ph"><h2>Joints &amp; jog</h2>
+        <span class="dim small">track: <span style="color:#56657a">■</span> motor sweep <span style="color:#7d8ea5">■</span> soft limit
+          <span style="color:var(--violet)">□</span> lab envelope <span style="color:var(--accent)">|</span> points ○ goal</span>
+        <div class="tools"></div></div>
+      <div class="pb tight"></div>
+    </section>
+
+    <section class="panel workbench">
+      <div class="ph"><div class="tabs">
+        <button data-tab="points">Points &amp; rest</button>
+        <button data-tab="envelope">Reach envelope</button>
+        <button data-tab="tool">Tool</button>
+        <button data-tab="video">Video</button>
+        <button data-tab="raw">Raw state</button>
+        <button data-tab="journal">Journal</button>
+        <button data-tab="api">API</button>
+      </div></div>
+      <div class="tabpane" data-pane="points" data-panel="points"></div>
+      <div class="tabpane" data-pane="envelope" data-panel="envelope"></div>
+      <div class="tabpane" data-pane="tool" data-panel="tool"></div>
+      <div class="tabpane" data-pane="video" data-panel="video"></div>
+      <div class="tabpane" data-pane="raw" data-panel="raw"></div>
+      <div class="tabpane" data-pane="journal" data-panel="journal"></div>
+      <div class="tabpane" data-pane="api" data-panel="api"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" data-panel="side">
+      <div class="ph"><h2>Side view</h2><span class="dim small">to scale · the floor model the table guard uses</span></div>
+      <div class="pb">
+        <canvas class="side" aria-label="side view of the arm, table and guard"></canvas>
+        <div class="legend">
+          <span><i style="background:#3fb950"></i>upper arm</span><span><i style="background:#d29922"></i>forearm</span>
+          <span><i style="background:#ff7b9c"></i>wrist→tips</span><span><i style="background:#58a6ff"></i>goal (dashed)</span>
+          <span><i style="background:#f85149"></i>table guard</span><span><i style="background:#39d0d8"></i>tool</span><span>◆ point</span><span style="color:var(--violet)">■ rest</span>
+        </div>
+        <div class="sidegrid" style="margin-top:10px">
+          <div class="readout"></div>
+          <canvas class="topv" aria-label="top view, schematic"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="changes" id="changes">
+      <div class="ph"><h2>Pending changes</h2><span class="count"></span><span class="dim small">staged, not saved</span></div>
+      <div class="pb" id="changes-body"></div>
+      <div class="pfoot"></div>
+    </section>
+
+    <section class="panel" data-panel="guards">
+      <div class="ph"><h2>Guards</h2><span class="dim small">enforced by the control loop on every move</span></div>
+      <div class="pb"></div>
+    </section>
+  </div>
+
+</main>
+
+<script type="module">
+  import { startLab } from '/static/lab/app.js';
+  startLab();
+</script>
+</body>
+</html>
