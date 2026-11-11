@@ -8,6 +8,7 @@ the same chain of guards: step cap, soft limits, floor model, load guard, stall 
 import json
 import shutil
 import signal
+import sys
 import threading
 import time
 import traceback
@@ -20,6 +21,8 @@ from .chess import workspace as chess_ws
 from .chess.log import GameLog
 from .controller import Controller
 from .floor import FLOOR_FREEZE, FLOOR_MARGIN
+from .initialisation import calibration as init_calib
+from .initialisation import session as init_session
 from .paint import kinematics as paint_kin
 from .paint import program as paint_program
 from .paint import vision as paint_vision
@@ -51,6 +54,10 @@ def main():
     paths.ensure_dirs()
     log(f"rest pose: {load_rest()}")
     ctrl = Controller()
+    reason = init_calib.startup_problem() or ("requested with --init" if "--init" in sys.argv[1:] else None)
+    if reason:   # dashboard + /init only: no control loop, no motor command, torque left as it is
+        return init_session.run(reason, lambda: dashboard.serve(ctrl), ctrl)
+    if init_calib.mirror_if_missing(): log(f"calibration file mirrored to {init_calib.MIRROR}")
     robot = hardware.connect()
     hardware.configure_motors(robot)
     limits = hardware.joint_limits(robot)

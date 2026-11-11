@@ -21,6 +21,7 @@ from .chess import workspace as chess_ws
 from .chess.log import GameLog
 from .controller import Controller
 from .floor import FLOOR_MARGIN, GRASP_Z
+from .initialisation import session as init_session
 from .paint import kinematics as paint_kin
 from .paint import planner as paint_planner
 from .paint import program as paint_program
@@ -34,6 +35,7 @@ from .video import VIDEO_DIR, VideoRecorder
 PAGE = (Path(__file__).parent / "web" / "dashboard.html").read_bytes()
 PAINT_PAGE = (Path(__file__).parent / "web" / "paint.html").read_bytes()
 CHESS_PAGE = (Path(__file__).parent / "web" / "chess.html").read_bytes()
+INIT_PAGE = (Path(__file__).parent / "web" / "init.html").read_bytes()
 
 
 def _json(handler, obj, status=200):
@@ -261,6 +263,25 @@ def chess_cmd(ctrl, payload):
     return {"ok": True}
 
 
+def init_state(ctrl):
+    """/init/state: the init session in init mode, otherwise what can be read without the bus."""
+    if init_session.SESSION is not None: return init_session.SESSION.state()
+    from .hardware import camera_status
+    res = init_session.normal_state(camera_status())
+    st, _ = ctrl.snapshot(); pose = st.get("present") or {}
+    if pose:
+        res["pose"], res["pose_from"] = pose, "control loop"
+        res["side"] = {"arm": ctrl.floor.arm_points(pose), "margin_cm": FLOOR_MARGIN * 100, "grasp_cm": GRASP_Z * 100,
+                       "tip_z_cm": None if ctrl.floor.z(pose) is None else round(ctrl.floor.z(pose) * 100, 1)}
+    return res
+
+
+def init_cmd(body: dict) -> dict:
+    if init_session.SESSION is None:
+        return {"error": "the bridge is in normal mode: restart it with `make init` to use the hardware steps"}
+    return init_session.SESSION.command(str(body.get("a", "")), body)
+
+
 def serve(ctrl: Controller, port: int = HTTP_PORT):
     """Start the dashboard in a daemon thread and return the server."""
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(ctrl))
@@ -277,7 +298,12 @@ def make_handler(ctrl: Controller):
             u = urlparse(self.path)
             n = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(n) if n else b""
-            if u.path == "/chess/cmd":
+            if u.path == "/init/cmd":
+                try: res = init_cmd(json.loads(body or b"{}"))
+                except Exception as e:
+                    log(f"init cmd error: {e}"); res = {"error": str(e)}
+                _json(self, res)
+            elif u.path == "/chess/cmd":
                 try: res = chess_cmd(ctrl, json.loads(body or b"{}"))
                 except Exception as e:
                     log(f"chess cmd error: {e}"); res = {"error": str(e)}
@@ -292,7 +318,14 @@ def make_handler(ctrl: Controller):
 
         def do_GET(self):
             u = urlparse(self.path)
-            if u.path == "/":
+            if u.path == "/" and init_session.SESSION is not None:   # init mode: nothing else works
+                self.send_response(302); self.send_header("Location", "/init"); self.end_headers()
+            elif u.path == "/init":
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(INIT_PAGE))); self.end_headers(); self.wfile.write(INIT_PAGE)
+            elif u.path == "/init/state":
+                _json(self, init_state(ctrl))
+            elif u.path == "/":
                 body = PAGE; self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             elif u.path == "/state":

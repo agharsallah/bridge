@@ -468,3 +468,24 @@ history rows plus the aggregate.
 
 Log lines the history adds: `chess: applied <id> — <path> <before> -> <after> (<why>)` when a suggestion
 is applied, and `chess: empty-board reference captured` when the camera gets its baseline.
+
+## 13. Initialisation page `/init` (added 2026-11-11)
+
+`make init` (`uv run so101-bridge --init`) starts the bridge in **init mode**: dashboard only, no control loop,
+no motor command, torque left as it is. The daemon also falls into init mode by itself when the lerobot
+calibration file (`~/.cache/huggingface/lerobot/calibration/robots/so_follower/my_follower.json`) is missing or
+incomplete, which is what happens when the Hugging Face cache is cleared. Every other URL redirects to `/init`.
+
+- **Health checks**: serial port, all six motors answer, motor supply voltage (>= 6 V; ~5 V means only USB power),
+  calibration file, file = motor registers, backup copy in `config/calibration/`, ESTOP, config files, lerobot
+  version, and (button) each camera grabs a frame.
+- **Lost calibration file**: *rebuild file from motors* writes only the file, from the motor registers (homing
+  offset, min, max). For joints under `extend` in `limits.json` the registers may hold the bridge's widened
+  limits (RAM only, gone after a power cycle), so the range logged as `cal was a..b` in `var/bridge.log` wins.
+  *restore from config/ backup* copies the mirror back. A normal start creates the mirror when it is missing.
+- **Guided recalibration** (rebuilt arm / new motor only; it moves 0 deg of every joint, so all taught poses must
+  be re-taught): lerobot's `record_calibration` split into confirmed buttons: release torque -> homing pose +
+  half-turn homing -> sweep -> write + save (old file to `var/calibration_backups/`) -> engage.
+- The page shows lerobot's own homing diagram, the `so101.mdx` Calibrate section and the CLI equivalent, read
+  from the installed lerobot checkout. In normal mode `/init` shows the files, cameras and docs only.
+- Endpoints: `GET /init/state`, `POST /init/cmd {"a": <command>, "confirm": "yes"}`.

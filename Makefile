@@ -1,7 +1,10 @@
-.PHONY: run test lint fmt clean
+.PHONY: run init test lint fmt clean
 
 run:            ## start the bridge daemon (dashboard on http://localhost:8765)
 	uv run so101-bridge
+
+init:           ## start in init mode: health checks + calibration at http://localhost:8765/init
+	uv run so101-bridge --init
 
 test:           ## unit tests (no hardware needed)
 	uv run pytest -q
