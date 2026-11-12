@@ -1,0 +1,37 @@
+{
+ "points": {},
+ "rest": null,
+ "envelope": {},
+ "motion": {
+  "speed": 4.0,
+  "jog_step": 1.0
+ },
+ "video": {
+  "dir": "var/videos/lab",
+  "raw": true
+ },
+ "cameras": {
+  "width": 960,
+  "quality": 70,
+  "fps": 10
+ },
+ "jenga": {
+  "depth_cm": 3.0,
+  "speed": 3.0,
+  "dwell_s": 1.0,
+  "nudge_max_cm": 2.0,
+  "brick_cm": [
+   7.0,
+   2.0
+  ],
+  "depth_max_cm": 3.5
+ },
+ "tool": {
+  "name": "stick",
+  "length_cm": 13.0,
+  "out_cm": 10.0,
+  "margin_cm": 0.8,
+  "grip": 8.6
+ },
+ "updated": "2026-11-12 17:29:24"
+}
