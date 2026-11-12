@@ -9,5 +9,10 @@
   "shoulder_lift": 48
  },
  "CHESS_AUTO_TRIGGER": true,
- "CHESS_POLL_S": 1.0
+ "CHESS_POLL_S": 1.0,
+ "_cams": "2026-11-12: cameras picked by model name + position ('Innomaker#n', n-th Innomaker in OpenCV order). Both Innomakers share one USB serial, so their device IDs are unreliable; other cameras (laptop, OBS) are never opened. If a replug swaps top and wrist, use 'Swap top/wrist' in the lab camera panel. List: uv run python -m so101_bridge.camera_ids",
+ "CAMS": {
+  "top": "Innomaker#1",
+  "wrist": "Innomaker#0"
+ }
 }

@@ -250,6 +250,17 @@ def changes_discard(lab, ctrl, args):
     lab.store.discard(args.get("ids")); return "discarded"
 
 
+# ------------------------------------------------------------------ cameras
+@act("cameras_swap", "Swap cameras", "Swap two cameras' devices (default: the first two) when a replug flipped "
+     "two identical cameras. Saved to config/settings.json; both reopen in a few seconds.", {"a": "string?", "b": "string?"},
+     group="cameras")
+def cameras_swap(lab, ctrl, args):
+    from .. import hardware, settings  # lazy: the daemon's camera bookkeeping
+    names = list(settings.CAMS)
+    a, b = args.get("a") or names[0], args.get("b") or (names[1] if len(names) > 1 else "")
+    hardware.swap_cameras(a, b); return f"swapping {a} <-> {b}: both cameras reopen in a few seconds"
+
+
 # ------------------------------------------------------------------ video
 @act("video_start", "Record video", "Start recording the cameras into the lab's video dir.", {"name": "string?"}, group="video")
 def video_start(lab, ctrl, args):

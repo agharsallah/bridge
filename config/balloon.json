@@ -1,0 +1,29 @@
+{
+ "points": {},
+ "rest": null,
+ "envelope": {},
+ "motion": {
+  "speed": 4.0,
+  "jog_step": 1.0
+ },
+ "video": {
+  "dir": "var/videos/lab",
+  "raw": true
+ },
+ "cameras": {
+  "width": 960,
+  "quality": 70,
+  "fps": 10
+ },
+ "balloon": {
+  "dwell_s": 1.0
+ },
+ "tool": {
+  "name": "needle",
+  "length_cm": 3.0,
+  "out_cm": 2.0,
+  "margin_cm": 0.8,
+  "grip": 0.0
+ },
+ "updated": "2026-11-11 12:55:19"
+}

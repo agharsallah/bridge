@@ -99,6 +99,35 @@ CAM_STRIKES = 3   # consecutive missed frames before a camera is detached — on
 CAM_REOPEN_WARMUP_S = 4   # how long a respawned camera process may take to deliver its first frame
 
 
+_SWAP = []   # camera pairs to swap, queued from any thread, carried out by the control loop (read_observation)
+
+
+def swap_cameras(a, b):
+    """Swap the devices of two cameras, e.g. after a replug brought two identical cameras back in the other order.
+
+    Saved to config/settings.json at once; the loop then detaches both and reopens each on the other's device.
+    """
+    if a == b or a not in _CAM_CFG or b not in _CAM_CFG: raise ValueError(f"cannot swap {a!r} and {b!r}")
+    from . import settings
+    cams = {**settings.CAMS, a: _CAM_CFG[b]["index"], b: _CAM_CFG[a]["index"]}
+    settings.save_override("CAMS", cams)
+    _SWAP.append((a, b))
+    log(f"camera swap {a} <-> {b} queued, saved CAMS={cams}")
+
+
+def _do_swaps(robot):
+    """Carry out queued swaps — not while a camera is mid-reconnect (it would come back on the old device)."""
+    if not _SWAP or any(st["reopening"] for st in _CAM.values()): return
+    while _SWAP:
+        a, b = _SWAP.pop(0)
+        _CAM_CFG[a]["index"], _CAM_CFG[b]["index"] = _CAM_CFG[b]["index"], _CAM_CFG[a]["index"]
+        for n in (a, b):
+            cam = robot.cameras.pop(n, None) or (_CAM.get(n) or {}).get("cam")
+            _STRIKES.pop(n, None)
+            _CAM[n] = {"cam": cam, "since": time.time(), "next_try": 0.0, "reopening": False}   # reopened right away
+        log(f"camera swap {a} <-> {b}: reopening both")
+
+
 def read_observation(robot):
     """Joint positions from the bus; camera frames best-effort.
 
@@ -110,6 +139,7 @@ def read_observation(robot):
     """
     obs = {f"{m}.pos": v for m, v in
            robot.bus.sync_read("Present_Position", num_retry=robot.config.num_read_retries).items()}
+    _do_swaps(robot)
     for name in list(robot.cameras):
         obs[name] = _frame(robot, name)
     for name, st in list(_CAM.items()):              # cameras that are down: try them again now and then

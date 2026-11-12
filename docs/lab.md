@@ -145,6 +145,12 @@ table guard, tool guard). `goto_far` already splits big moves into ≤10° steps
 - HTTP: `/<lab>/cam/<cam>.jpg?w=1280&q=85` for one frame, `.mjpg` for a stream.
 - The template never analyses pixels. Detection, overlays and calibration belong to *your* lab, or to a
   model that consumes the frames.
+- Which device is which camera: `settings.CAMS` names each one as `"model#n"`, the n-th camera of that
+  model in OpenCV order (`{"top": "Innomaker#1", "wrist": "Innomaker#0"}`). Other cameras (laptop, OBS)
+  are never opened, and a missing camera shows as missing. The two Innomakers share one USB serial, so
+  nothing in software tells them apart: if a replug brings them back swapped, press **⇄ Swap** in the
+  camera panel (action `cameras_swap`, saved to `config/settings.json`). To list the connected devices, run
+  `uv run python -m so101_bridge.camera_ids`.
 
 ## 5. Hooking a model or an LLM
 - **Tools**: build them from `GET /<lab>/actions`. Each entry has `name`, `description`, `params`, `moves`

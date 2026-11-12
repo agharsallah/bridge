@@ -20,10 +20,21 @@ import numpy as np
 MAX_READ_FAILURES = 30      # consecutive read() misses before the child gives up and exits (~1 s at 30 fps)
 
 
+NOT_CONNECTED = -1.0        # stamp value the child sets when the camera it was asked for is not connected
+
+
 def _run(index, width, height, fps, shm_name, stamp, lock, stop):
-    """Child process: open the camera, copy every frame into shared memory, exit when the stream dies."""
+    """Child process: open the camera, copy every frame into shared memory, exit when the stream dies.
+
+    ``index`` may be a ``"model#n"`` selector (see camera_ids): it is resolved here, in this fresh process, so
+    the device list is current — and if that camera is absent nothing is opened (never another device)."""
     import cv2
-    cap = cv2.VideoCapture(index)
+
+    from .camera_ids import resolve
+    found = resolve(index)
+    if found is None:
+        stamp.value = NOT_CONNECTED; return
+    cap = cv2.VideoCapture(found)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, fps)
     shm = shared_memory.SharedMemory(name=shm_name)
@@ -70,7 +81,8 @@ class WorkerCamera:
         while time.time() < deadline and self._proc.is_alive():
             if self._stamp.value > 0: return
             time.sleep(0.05)
-        why = "exited" if not self._proc.is_alive() else f"no frame within {self.warmup_s:.0f} s"
+        why = ("is not connected (no such camera on the bus)" if self._stamp.value == NOT_CONNECTED
+               else "exited" if not self._proc.is_alive() else f"no frame within {self.warmup_s:.0f} s")
         self.disconnect()
         raise ConnectionError(f"{self} {why}")
 

@@ -1,5 +1,6 @@
-// Top bar: status chips and the safety cluster (STOP / RESUME / HOLD | torque on / free-drive). Esc = STOP.
+// Top bar: status chips and the safety cluster (STOP / RESUME / HOLD / REST | torque on / free-drive). Esc = STOP.
 import { h, fix } from './core.js';
+import { previewMove } from './points.js';
 
 export function mountTopbar(bar, ctx) {
   const chips = bar.querySelector('.chips'), safety = bar.querySelector('.safety');
@@ -16,7 +17,13 @@ export function mountTopbar(bar, ctx) {
   const hold = h('button', { title: 'abort what runs and hold here', onclick: () => ctx.api.cmd('hold') }, 'Hold');
   const engage = h('button', { title: 'torque on, holding the present pose', onclick: () => ctx.api.cmd('engage') }, 'Torque on');
   const release = h('button.danger', { title: 'torque off: you hold the arm (asks first)', onclick: () => ctx.api.cmd('release') }, 'Free-drive…');
-  safety.append(stop, resume, hold, h('span.sep'), engage, release);
+  const toRest = async () => {                       // same flow as the Points tab: preview the move, then go
+    const r = ctx.S?.rest; if (!r?.pose) return;
+    const path = r.source === 'lab' ? ' Path: up to the high folded pose, then down onto the lab rest.' : ' Path: the proven global REST fold.';
+    if (await previewMove(ctx, `Go to ${r.source === 'lab' ? 'lab' : 'global'} rest`, r.pose, path)) ctx.api.cmd('rest', { speed: ctx.speed?.() });
+  };
+  const rest = h('button', { title: 'go to the rest position (lab rest if set, else the global one) — shows the move first', onclick: toRest }, '⌂ Rest');
+  safety.append(stop, resume, hold, rest, h('span.sep'), engage, release);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) { e.preventDefault(); ctx.api.cmd('stop'); } });
 
   return {
@@ -31,6 +38,7 @@ export function mountTopbar(bar, ctx) {
       const T = S.tool?.mounted; set(tl, T ? `${T.name} · ${fix(T.out_cm, 1)} cm out` : '', 'tool', !!T);
       const n = S.config?.pending?.length || 0; set(pend, `${n} pending`, 'warn', n > 0);
       const r = S.video?.recording; set(rec, r ? `REC ${fix(r.seconds, 0)} s` : '', 'rec', !!r);
+      rest.disabled = !!S.estop || !S.torque_on || !!S.busy || !S.rest?.pose;
       resume.disabled = !S.estop; release.disabled = !S.torque_on; engage.disabled = !!S.torque_on && !S.estop;
     },
   };

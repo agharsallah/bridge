@@ -12,7 +12,7 @@ import os
 # ------------------------------------------------------------------------------- hardware
 PORT = "/dev/cu.usbmodem5A460836731"
 ROBOT_ID = "my_follower"
-CAMS = {"top": 1, "wrist": 0}
+CAMS = {"top": 1, "wrist": 0}   # name -> OpenCV index, or "model#n" (n-th camera of that model): see camera_ids.py
 CAM_W, CAM_H, CAM_FPS = 1920, 1080, 30
 CAM_SIZE = {"wrist": (1280, 720)}   # per-camera capture size. Only the board reader wants the full frame,
                                     # and it reads the overhead camera; every wrist view is resized to
@@ -89,9 +89,25 @@ WELL_MIN_AREA = 80
 OVERRIDDEN = []
 
 
-def _apply_overrides():
+def _settings_path():
     from .paths import SETTINGS_FILE
-    path = os.environ.get("SO101_SETTINGS", str(SETTINGS_FILE))
+    return os.environ.get("SO101_SETTINGS", str(SETTINGS_FILE))
+
+
+def save_override(key, value):
+    """Set one key in config/settings.json, keeping every other key (used by the camera swap)."""
+    path = _settings_path()
+    try:
+        with open(path) as f: data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+    data[key] = value
+    with open(path, "w") as f: f.write(json.dumps(data, indent=1) + "\n")
+    globals()[key] = value
+
+
+def _apply_overrides():
+    path = _settings_path()
     try:
         with open(path) as f:
             data = json.load(f)

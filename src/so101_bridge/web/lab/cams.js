@@ -1,5 +1,5 @@
 // Camera panel: raw MJPEG streams from /<lab>/cam/<name>.mjpg — focus + thumbnails or grid,
-// per-viewer quality, pause, fullscreen, snapshot, stale/offline overlay, auto-reconnect.
+// per-viewer quality, pause, fullscreen, snapshot, stale/offline overlay, auto-reconnect, swap two cameras.
 import { h, fix, pref } from './core.js';
 
 const QUALITY = { low: { w: 640, q: 60 }, med: { w: 960, q: 70 }, high: { w: 1280, q: 80 }, full: { w: 1920, q: 85 } };
@@ -55,7 +55,9 @@ export function mountCams(panel, ctx) {
   const lay = h('button.sm', { onclick: () => { layout = layout === 'focus' ? 'grid' : 'focus'; pref.set('cam.layout', layout); syncTools(); arrange(); } });
   const pause = h('button.sm', { onclick: () => { paused = !paused; pref.set('cam.paused', paused); syncTools(); reconnect(); } });
   function syncTools() { sel.value = qual; lay.textContent = layout === 'focus' ? 'Grid' : 'Focus'; pause.textContent = paused ? '▶ Resume streams' : '⏸ Pause'; }
-  tools.append(sel, lay, pause); syncTools();
+  const swap = h('button.sm', { hidden: true, title: 'A replug can bring two identical cameras back in the other order: swap them (saved to settings)',
+    onclick: () => ctx.api.cmd('cameras_swap', { a: names[0], b: names[1] }) }, '⇄ Swap');
+  tools.append(sel, lay, pause, swap); syncTools();
 
   return {
     reconnect,
@@ -65,6 +67,7 @@ export function mountCams(panel, ctx) {
       const now = list.map((c) => c.name);
       if (now.join() !== names.join()) {
         names = now; tiles = Object.fromEntries(names.map((n) => [n, tiles[n] || tile(n)]));
+        swap.hidden = names.length < 2; swap.textContent = `⇄ Swap ${names[0]}/${names[1]}`;
         if (!names.length) { body.replaceChildren(h('div.empty', 'No cameras configured (settings.CAMS).')); return; }
         arrange();
       }

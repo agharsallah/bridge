@@ -2,7 +2,7 @@
  "_comment": "Copy to config/settings.json and keep only the keys you change. Names and meanings match settings.py; dict values merge key by key.",
  "PORT": "/dev/cu.usbmodem5A460836731",
  "ROBOT_ID": "my_follower",
- "CAMS": {"top": 0, "wrist": 1},
+ "CAMS": {"top": "Innomaker#1", "wrist": "Innomaker#0"},
  "CAM_W": 1920, "CAM_H": 1080, "CAM_FPS": 30,
  "HTTP_PORT": 8765,
  "LOOP_HZ": 30,
