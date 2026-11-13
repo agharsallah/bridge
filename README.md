@@ -17,6 +17,16 @@ Finder), or `touch ESTOP` in any terminal. Clear it with **RESUME** or `scripts/
 agent manual: startup, the command interface, the state format, what every log line means, and what
 to do when something goes wrong.
 
+## Demos
+
+| Balloon lab — aim by wrist camera, thrust, pop | Jenga lab — push one brick out of row 11 |
+| --- | --- |
+| <video src="docs/videos/20261112_164353_pop_orange3.mp4" controls muted width="100%"></video> | <video src="docs/videos/jenga_row11_take4_x.mp4" controls muted width="100%"></video> |
+| [`pop_orange3.mp4`](docs/videos/20261112_164353_pop_orange3.mp4) — the needle is lined up on the orange balloon from the wrist image, then driven along a straight horizontal line and stopped the moment the orange disappears | [`jenga_row11_take4_x.mp4`](docs/videos/jenga_row11_take4_x.mp4) — stick mounted as a tool, camera line-up, a 4.5 cm push drops the middle brick out the back, stick pulled out |
+
+Both runs are fully guarded: every move is a request to the control loop, with the tool tip protected by the
+table guard. See [Labs](#labs) below.
+
 ## Screenshots
 
 | Control dashboard (`/`) | Painting page (`/paint`) |
@@ -37,6 +47,8 @@ in once the daemon is running.
 | [`docs/metadata.json`](docs/metadata.json) | every calibrated number, machine-readable: motor IDs/gains, camera indices, joint limits and conventions, guard thresholds, floor-model fit, vision gates, known poses, painting tuning |
 | [`docs/decision-log.json`](docs/decision-log.json) | chronological log of tuning decisions and why each was made |
 | [`docs/motion-log-pick-place.md`](docs/motion-log-pick-place.md) | run-by-run log of pick-and-place attempts |
+| [`docs/lab.md`](docs/lab.md) | the lab template: anatomy, actions, moving the arm, staging, panels, cameras, model/LLM hooks, tests — read before starting a new experiment |
+| [`docs/jenga.md`](docs/jenga.md) | the Jenga lab: setup, how a turn is judged, calibration numbers and what the sessions taught |
 
 ## Helpers
 
@@ -44,6 +56,7 @@ in once the daemon is running.
 | --- | --- |
 | `make run` (`uv run so101-bridge`) | start the daemon; dashboard on http://localhost:8765 |
 | `make test` (`uv run pytest -q`) | unit tests, no hardware needed |
+| `make lab NAME=<name> TITLE="..." DESC="..."` | scaffold a new lab on the template, served at `/<name>` (see `docs/lab.md`) |
 | `make lint` / `make fmt` | `ruff check` / `ruff check --fix` |
 | `make stop` (`touch ESTOP`) | freeze the arm right now, from any terminal |
 | `make resume` (`rm -f ESTOP`) | clear the emergency stop |
@@ -64,7 +77,8 @@ dashboard **RESUME** button — restarting the bridge never drops torque, the ar
 | `config/` | what you may edit: `limits.json`, `rest.json`, `floor_points.json`, `waypoints.json`, and optional overlays `settings.json` (any constant in `settings.py`, see `settings.example.json`) and `poses.json` (taught paths, see `poses.example.json`) |
 | `var/` | runtime only, never committed: `bridge.log`, `state.json`, `cmd/`, `done/`, `recordings/`, camera snapshots |
 | `scripts/` | double-clickable `STOP` / `RESUME` / `RELEASE` for the operator |
-| `docs/` | operations manual, learnings, machine-readable `metadata.json`, decision log |
+| `docs/` | operations manual, learnings, machine-readable `metadata.json`, decision log, lab guides; `docs/videos/` holds the demo clips |
+| `var/videos/lab/`, `var/lab/<lab>_runs/` | every lab take, filmed and logged (plan, paths sent, telemetry) |
 | `paintings/` | compiled painting programs (`<name>.json`): joint poses for every step, replayable without model or cameras |
 | `puzzles/` | chess puzzles: a FEN, which colour the robot plays and the solution line |
 | `config/teach/` | guided teaching sessions: what the daemon asks the operator to do, step by step |
@@ -85,6 +99,8 @@ dashboard **RESUME** button — restarting the bridge never drops torque, the ar
 | `shared/` | what every task needs: tool-tip kinematics on a taught flat surface (`plane.py`), path/densify/travel helpers (`motion.py`), JSON config helpers (`store.py`), guided teaching sessions (`teach.py`) |
 | `paint/` | painting: taught workspace (`workspace.py`), brush-tip kinematics on the paper plane (`kinematics.py`), picture → hatch strokes (`planner.py`), strokes → replayable joint program (`program.py`), the `paint` routine (`routine.py`) |
 | `chess/` | chess: taught board (`workspace.py`), gripper kinematics on the board (`kinematics.py`), overhead board reading (`vision.py`), rules and occupancy → move (`game.py`), who chooses the move (`players.py`), move → arm motion (`physical.py`), the game document (`log.py`), what every attempt taught us (`history.py`), the routines (`routine.py`) |
+| `lab/` + `web/lab/` | the generic lab template every experiment builds on: guards, cameras, joints, side view, points, reach envelope, tool, staging |
+| `labs/` + `web/<name>/` | one module and one panel set per experiment (`balloon`, `jenga`, …) |
 | `floor.py` | fitted floor model: predicted fingertip height, the guard that protects the table |
 | `vision.py` | brick detection and the dashboard overlay |
 | `dashboard.py` + `web/dashboard.html` | local HTTP dashboard (status chips, camera streams, to-scale side view of the floor model, joint tracks with load, tip-height and tracking-error charts, log tail) and the JSON/MJPEG interfaces |
@@ -124,8 +140,8 @@ so a picture painted once can be painted again later from the saved file.
 
 ## Chess (http://localhost:8765/chess)
 
-Not yet run on the arm — the board model, the move logic and the turn loop are tested against a simulated
-arm; the first hardware session is `docs/operations.md` §12.6.
+First moves played on the arm in step mode (a stepped pass first, autonomous after); the hardware session
+procedure is `docs/operations.md` §12.6.
 
 1. **Teach** — the daemon reads out an 18-step session (`config/teach/chess_board.json`): free-drive the
    closed fingertips onto the centres of a1, h1, h8 and a8, two check squares, then grip each kind of
@@ -148,6 +164,24 @@ arm; the first hardware session is `docs/operations.md` §12.6.
    button. Nothing is ever applied on its own.
 
 The LLM never sees a frame and never applies a rule: it reads `var/games/<id>.json` and writes one move.
+
+## Labs
+
+Every new experiment is a **lab** on the `/lab` template (`docs/lab.md`): one Python module in
+`src/so101_bridge/labs/` and one panel set in `web/<name>/`, served at `/<name>`. It gets STOP, cameras,
+jogging, the side view, named points, a lab-only rest and reach envelope, and the tool model for free, and it
+can only move the arm through the control loop's guards. Config edits are staged for the operator to apply,
+and anything that releases torque or surprises the operator is confirm-gated.
+
+| Lab | What it does |
+| --- | --- |
+| `/balloon` | finds the orange balloon in the wrist camera, aims the needle by pan, thrusts on a straight line until the orange disappears, retracts. Every pop is filmed and saved with its plan and telemetry (`var/lab/balloon_runs/`) and can be replayed, optionally shifted |
+| `/jenga` | with a stick mounted as a tool, plays a turn: approach, camera line-up, push the middle brick of one row out of the back, pull out. A 3-D tower view tracks which bricks are in, pushed or out. Setup and calibration in `docs/jenga.md` |
+
+```bash
+make lab NAME=pour TITLE="Pouring lab" DESC="pour 50 ml from cup A into cup B"
+make run && open http://localhost:8765/pour
+```
 
 ## Development
 
