@@ -251,6 +251,25 @@ def changes_discard(lab, ctrl, args):
 
 
 # ------------------------------------------------------------------ cameras
+@act("cameras_devices", "List camera devices", "Every connected camera device (index, name, port id, selector) and "
+     "which device each camera uses now.", group="cameras")
+def cameras_devices(lab, ctrl, args):
+    from .. import hardware
+    from ..camera_ids import listing_fresh
+    return {"devices": listing_fresh(), **hardware.camera_assignment()}
+
+
+@act("cameras_assign", "Assign cameras", "Choose the device for each camera, e.g. {\"assign\": {\"top\": \"Innomaker-U20CAM-1080p-S1#1\"}} "
+     "(selectors from cameras_devices). `auto`: keep checking by arm motion after reconnects. Saved to config/settings.json.",
+     {"assign": "object", "auto": "bool?"}, group="cameras")
+def cameras_assign(lab, ctrl, args):
+    from .. import hardware
+    mapping = args.get("assign")
+    if not isinstance(mapping, dict) or not mapping: raise ValueError("assign must be {camera: selector}")
+    hardware.assign_cameras(mapping, manual=True, auto=args.get("auto"))
+    return "cameras reassigned: they reopen in a few seconds"
+
+
 @act("cameras_swap", "Swap cameras", "Swap two cameras' devices (default: the first two) when a replug flipped "
      "two identical cameras. Saved to config/settings.json; both reopen in a few seconds.", {"a": "string?", "b": "string?"},
      group="cameras")

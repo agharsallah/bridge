@@ -37,20 +37,21 @@
  },
  "cameras": {
   "top": {
-   "opencv_index": 0,
    "model": "Innomaker U20CAM 1080p",
    "capture": "1920x1080@30",
    "processed": "960x540",
-   "view": "overhead, arm base at bottom-right, user at left"
+   "view": "overhead, arm base at bottom-right, user at left",
+   "selector": "Innomaker#1"
   },
   "wrist": {
-   "opencv_index": 1,
    "model": "Innomaker U20CAM 1080p",
    "capture": "1920x1080@30",
    "processed": "960x540",
-   "view": "on fixed jaw; fixed jaw tip ~x380, moving jaw ~x850 when open; forward = image up"
+   "view": "on fixed jaw; fixed jaw tip ~x380, moving jaw ~x850 when open; forward = image up",
+   "selector": "Innomaker#0"
   },
-  "warning": "indices may swap after re-plugging; verify on the dashboard"
+  "identity": "Same model and USB serial (SN0001): uniqueID = USB port only. OpenCV indexes devices sorted by uniqueID. CAMS uses 'model#n'; after a reconnect camera_identity checks which view moves with the arm (CAM_ON_ARM='wrist') and swaps if needed; unsure -> the operator assigns by hand (lab camera panel). Two cameras never share a device.",
+  "list": "uv run python -m so101_bridge.camera_ids"
  },
  "joint_conventions": {
   "shoulder_lift": {

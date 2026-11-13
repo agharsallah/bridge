@@ -7,12 +7,15 @@ import json
 import threading
 import time
 
+from . import camera_identity
+from .camera_worker import WorkerCamera
 from .paths import LIMITS_FILE
 from .settings import (
     CAL_MARGIN_DEG,
     CAM_FPS,
     CAM_H,
     CAM_MAX_AGE_MS,
+    CAM_ON_ARM,
     CAM_RETRY_S,
     CAM_SIZE,
     CAM_W,
@@ -25,7 +28,6 @@ from .settings import (
     PORT,
     ROBOT_ID,
 )
-from .camera_worker import WorkerCamera
 from .util import log
 
 
@@ -99,33 +101,112 @@ CAM_STRIKES = 3   # consecutive missed frames before a camera is detached — on
 CAM_REOPEN_WARMUP_S = 4   # how long a respawned camera process may take to deliver its first frame
 
 
-_SWAP = []   # camera pairs to swap, queued from any thread, carried out by the control loop (read_observation)
+_PENDING = {}   # camera -> new device selector, queued from any thread, applied by the control loop (read_observation)
+_VERIFY = {}   # camera -> when it (re)attached: the twin cameras' identity is checked after that
+_TRUST = set()   # cameras the operator just assigned by hand: their next check is skipped (their word stands)
+_VOTE = None   # the identity vote in progress (camera_identity.Vote), restarted whenever a camera reattaches
+_IDENTITY = {"state": "idle", "message": "", "t": None}   # what the identity check last concluded, for the UI
+VERIFY_AFTER_S = 1.5   # let exposure settle after a (re)attach before comparing views
 
 
-def swap_cameras(a, b):
-    """Swap the devices of two cameras, e.g. after a replug brought two identical cameras back in the other order.
+def _status(state, message):
+    _IDENTITY.update(state=state, message=message, t=round(time.time(), 1))
 
-    Saved to config/settings.json at once; the loop then detaches both and reopens each on the other's device.
+
+def assign_cameras(mapping, manual=True, auto=None):
+    """Point cameras at other devices, ``{name: selector}`` (an int index or "model#n", see camera_ids).
+
+    Saved to config/settings.json at once; the loop then detaches the changed cameras and reopens them.
+    ``manual``: the operator's choice, never second-guessed by the next identity check. ``auto``: also save
+    whether the identity check runs after reconnects (CAM_AUTO_ID).
     """
-    if a == b or a not in _CAM_CFG or b not in _CAM_CFG: raise ValueError(f"cannot swap {a!r} and {b!r}")
     from . import settings
-    cams = {**settings.CAMS, a: _CAM_CFG[b]["index"], b: _CAM_CFG[a]["index"]}
+    from .camera_ids import resolve
+    for n, sel in mapping.items():
+        if n not in _CAM_CFG: raise ValueError(f"no camera {n!r}")
+        resolve(sel, [])                            # format check only: raises ValueError on a bad selector
+    cams = {**settings.CAMS, **mapping}
+    if len({str(v) for v in cams.values()}) != len(cams): raise ValueError("two cameras cannot use the same device")
     settings.save_override("CAMS", cams)
-    _SWAP.append((a, b))
-    log(f"camera swap {a} <-> {b} queued, saved CAMS={cams}")
+    if auto is not None: settings.save_override("CAM_AUTO_ID", bool(auto))
+    if manual: _TRUST.update(mapping); _status("manual", "assigned by hand")
+    _PENDING.update({n: s for n, s in mapping.items() if _CAM_CFG[n]["index"] != s})
+    log(f"camera assignment ({'by hand' if manual else 'by motion'}): CAMS={cams}")
 
 
-def _do_swaps(robot):
-    """Carry out queued swaps — not while a camera is mid-reconnect (it would come back on the old device)."""
-    if not _SWAP or any(st["reopening"] for st in _CAM.values()): return
-    while _SWAP:
-        a, b = _SWAP.pop(0)
-        _CAM_CFG[a]["index"], _CAM_CFG[b]["index"] = _CAM_CFG[b]["index"], _CAM_CFG[a]["index"]
-        for n in (a, b):
-            cam = robot.cameras.pop(n, None) or (_CAM.get(n) or {}).get("cam")
-            _STRIKES.pop(n, None)
-            _CAM[n] = {"cam": cam, "since": time.time(), "next_try": 0.0, "reopening": False}   # reopened right away
-        log(f"camera swap {a} <-> {b}: reopening both")
+def swap_cameras(a, b, manual=True):
+    """Swap the devices of two cameras (two identical cameras came back in the other order)."""
+    if a == b or a not in _CAM_CFG or b not in _CAM_CFG: raise ValueError(f"cannot swap {a!r} and {b!r}")
+    assign_cameras({a: _CAM_CFG[b]["index"], b: _CAM_CFG[a]["index"]}, manual=manual)
+
+
+def camera_assignment():
+    """``/state.cameras.assign``: each camera's selector, the arm camera, and what the identity check says."""
+    from . import settings
+    return {"cams": {n: c["index"] for n, c in _CAM_CFG.items()}, "on_arm": CAM_ON_ARM,
+            "auto": bool(settings.CAM_AUTO_ID), "identity": dict(_IDENTITY)}
+
+
+def _twins():
+    """The two cameras selected by the same model ("model#n"): only they can be confused with each other."""
+    sel = {n: c["index"].rpartition("#")[0].lower() for n, c in _CAM_CFG.items()
+           if isinstance(c["index"], str) and "#" in c["index"]}
+    names = list(sel)
+    for x in range(len(names)):
+        for y in range(x + 1, len(names)):
+            a, b = sel[names[x]], sel[names[y]]
+            if a in b or b in a: return names[x], names[y]
+    return None
+
+
+def _check_identity(obs):
+    """After a (re)attach: is CAM_ON_ARM really the twin on the arm? Swap the twins if their views say no."""
+    global _VOTE
+    from . import settings
+    pair = _twins()
+    if not pair or CAM_ON_ARM not in pair: _VERIFY.clear(); return
+    live = [n for n in pair if obs.get(n) is not None]
+    if len(live) == 1 and not _PENDING and _IDENTITY["state"] not in ("single", "manual"):
+        _status("single", f"only one of the two identical cameras is connected; it shows as {live[0]}. "
+                          f"If it is really the other one, assign it by hand.")
+    if _PENDING or len(live) < 2 or time.time() - max(_VERIFY.values()) < VERIFY_AFTER_S:
+        return                                      # wait: a change is pending, or a twin is not delivering yet
+    if _TRUST & set(pair):                          # just assigned by hand: the operator's word stands
+        _TRUST.difference_update(pair); _VERIFY.clear(); _VOTE = None; return
+    if not settings.CAM_AUTO_ID:
+        _VERIFY.clear(); _status("off", "automatic check off: cameras stay as assigned"); return
+    other = pair[1] if pair[0] == CAM_ON_ARM else pair[0]
+    if _VOTE is None:
+        _VOTE = camera_identity.Vote(CAM_ON_ARM, other)
+        _status("checking", f"move the arm a little: checking that {CAM_ON_ARM} is the camera riding it")
+    try:
+        verdict = _VOTE.feed([obs[f"{m}.pos"] for m in JOINTS if m != "gripper"], {n: obs[n] for n in pair})
+    except Exception as e:
+        log(f"camera identity: check failed ({e})"); _VERIFY.clear(); _VOTE = None; _status("unsure", f"check failed: {e}"); return
+    if verdict is None: return                      # the arm has not moved enough yet
+    _VERIFY.clear(); _VOTE = None
+    if verdict == "swap":
+        log(f"camera identity: {other}'s view moves with the arm, {CAM_ON_ARM}'s does not (ports changed?) -> swapping")
+        _status("swapped", f"{CAM_ON_ARM} and {other} were the wrong way round: swapped")
+        swap_cameras(CAM_ON_ARM, other, manual=False)
+    elif verdict == "ok":
+        log(f"camera identity: {CAM_ON_ARM} moves with the arm, as configured"); _status("ok", f"{CAM_ON_ARM} rides the arm, as assigned")
+    else:
+        log(f"camera identity: could not tell which of {pair} rides the arm -> waiting for a manual assignment")
+        _status("unsure", f"could not tell which camera rides the arm: pick {CAM_ON_ARM} and {other} by hand")
+
+
+def _do_assign(robot):
+    """Apply queued assignments — not while a camera is mid-reconnect (it would come back on the old device)."""
+    if not _PENDING or any(st["reopening"] for st in _CAM.values()): return
+    while _PENDING:
+        n, sel = _PENDING.popitem()
+        _CAM_CFG[n]["index"] = sel
+        cam = robot.cameras.pop(n, None) or (_CAM.get(n) or {}).get("cam")
+        _STRIKES.pop(n, None)
+        _CAM[n] = {"cam": cam, "since": time.time(), "next_try": 0.0, "reopening": False,
+                   "fresh": True}                    # reopened right away, on the new device: not the old port
+        log(f"camera {n}: now {sel!r}, reopening")
 
 
 def read_observation(robot):
@@ -139,9 +220,10 @@ def read_observation(robot):
     """
     obs = {f"{m}.pos": v for m, v in
            robot.bus.sync_read("Present_Position", num_retry=robot.config.num_read_retries).items()}
-    _do_swaps(robot)
+    _do_assign(robot)
     for name in list(robot.cameras):
         obs[name] = _frame(robot, name)
+    if _VERIFY: _check_identity(obs)
     for name, st in list(_CAM.items()):              # cameras that are down: try them again now and then
         if name not in robot.cameras:
             obs.setdefault(name, None); _retry(robot, name, st)
@@ -176,12 +258,28 @@ def _frame(robot, name):
     return frame
 
 
-def _attach(robot, name, cam):
-    """Connect one camera and hand it to the robot; on failure it is left off and retried later."""
+_ATTACH_LOCK = threading.Lock()   # one camera attaches at a time: two must never pick the same device
+
+
+def _uids_in_use(robot, name):
+    return {u for n, c in list(robot.cameras.items()) if n != name and (u := getattr(c, "uid", ""))}
+
+
+def _attach(robot, name, cam, prefer=""):
+    """Connect one camera and hand it to the robot; on failure it is left off and retried later.
+
+    The device uids the other cameras hold are excluded, so with one of two identical cameras unplugged the
+    remaining one is never opened twice (both tiles showed the same view).
+    """
+    global _VOTE
     try:
-        if not cam.is_connected: cam.connect()
-        robot.cameras[name] = cam
-        _CAM.pop(name, None); _STRIKES.pop(name, None)
+        with _ATTACH_LOCK:
+            if not cam.is_connected: cam.connect(exclude=_uids_in_use(robot, name), prefer=prefer)
+            if cam.uid and cam.uid in _uids_in_use(robot, name):
+                raise ConnectionError(f"{cam} opened device {cam.uid}, which another camera already uses")
+            robot.cameras[name] = cam
+        _CAM.pop(name, None); _STRIKES.pop(name, None); _VERIFY[name] = time.time()
+        _VOTE = None                                # a new device: any identity vote starts over
         log(f"camera {name}: connected")
         return True
     except Exception as e:
@@ -216,8 +314,9 @@ def _retry(robot, name, st):
     def work():
         down = time.time() - (st["since"] or time.time())
         try:
+            prefer = "" if st.get("fresh") else getattr(st["cam"], "uid", "")   # back on the same port after a drop
             _release(st["cam"])
-            if _attach(robot, name, _rebuild(name) or st["cam"]):
+            if _attach(robot, name, _rebuild(name) or st["cam"], prefer=prefer):
                 log(f"camera {name}: back after {down:.0f} s")
         except Exception as e:
             log(f"camera {name}: retry failed: {e}")

@@ -1,6 +1,18 @@
 // Camera panel: raw MJPEG streams from /<lab>/cam/<name>.mjpg — focus + thumbnails or grid,
-// per-viewer quality, pause, fullscreen, snapshot, stale/offline overlay, auto-reconnect, swap two cameras.
-import { h, fix, pref } from './core.js';
+// per-viewer quality, pause, fullscreen, snapshot, stale/offline overlay, auto-reconnect; which device each
+// camera uses (swap, assign by hand) and what the arm-motion identity check concluded.
+import { h, fix, pref, dialog, renderIf } from './core.js';
+
+// "Innomaker-U20CAM-1080p-S1#1" -> "Innomaker #1"; an int index -> "device 1"
+const short = (sel) => (typeof sel === 'number' ? `device ${sel}` : String(sel ?? '').replace(/^(.*?)[-\s].*#/, '$1 #'));
+const port = (uid) => (/^0x[0-9a-f]+$/i.test(uid) ? `USB port ${uid.slice(0, 5)}` : 'built-in / virtual');
+// which listed device a selector points at (same rule as camera_ids.resolve)
+function pick(devs, sel) {
+  if (typeof sel === 'number') return devs.find((d) => d.index === sel);
+  const i = String(sel ?? '').lastIndexOf('#'); if (i < 0) return undefined;
+  const model = sel.slice(0, i).toLowerCase(), n = +sel.slice(i + 1);
+  return devs.filter((d) => d.name.toLowerCase().includes(model))[n];
+}
 
 const QUALITY = { low: { w: 640, q: 60 }, med: { w: 960, q: 70 }, high: { w: 1280, q: 80 }, full: { w: 1920, q: 85 } };
 
@@ -57,12 +69,42 @@ export function mountCams(panel, ctx) {
   function syncTools() { sel.value = qual; lay.textContent = layout === 'focus' ? 'Grid' : 'Focus'; pause.textContent = paused ? '▶ Resume streams' : '⏸ Pause'; }
   const swap = h('button.sm', { hidden: true, title: 'A replug can bring two identical cameras back in the other order: swap them (saved to settings)',
     onclick: () => ctx.api.cmd('cameras_swap', { a: names[0], b: names[1] }) }, '⇄ Swap');
-  tools.append(sel, lay, pause, swap); syncTools();
+  const assignBtn = h('button.sm', { title: 'choose which device each camera uses', onclick: () => assignDialog() }, 'Assign…');
+  tools.append(sel, lay, pause, swap, assignBtn); syncTools();
+  const note = h('div'); panel.insertBefore(note, body);      // what the identity check says (asks to pick when unsure)
+
+  async function assignDialog() {
+    const r = await ctx.api.cmd('cameras_devices', {}, { quiet: true }); if (!r.ok) return;
+    const devs = r.devices || [], cams = r.cams || {};
+    const rows = Object.keys(cams).map((n) => {
+      const cur = pick(devs, cams[n]);
+      const s = h('select', cur ? null : h('option', { value: JSON.stringify(cams[n]) }, `${short(cams[n])} (not connected)`),
+        devs.map((d) => h('option', { value: JSON.stringify(d.selector), selected: d === cur }, `${d.index} · ${d.name} · ${port(d.uid)}`)));
+      return { n, s, now: cur ? `now ${short(cams[n])}, ${port(cur.uid)}` : 'now not connected' };
+    });
+    const auto = h('input', { type: 'checkbox', checked: !!r.auto });
+    const body = h('div',
+      h('p.small.dim', 'Identical cameras have the same name: tell them apart by the tiles (each shows its device), or by its USB port. ',
+        `"${r.on_arm}" must be the camera riding the arm.`),
+      h('table.t', rows.map((x) => h('tr', h('td', h('b', x.n), x.n === r.on_arm ? h('div.dim.small', 'on the arm') : null), h('td', x.s), h('td.dim.small', x.now)))),
+      h('label.inline', { style: { marginTop: '10px' } }, auto, `after a reconnect, check by arm motion that "${r.on_arm}" is the camera on the arm (swaps two identical cameras if not)`));
+    if (!(await dialog({ title: 'Assign cameras', body, ok: 'Assign', wide: true }))) return;
+    ctx.api.cmd('cameras_assign', { assign: Object.fromEntries(rows.map((x) => [x.n, JSON.parse(x.s.value)])), auto: auto.checked });
+  }
+
+  function identity(A) {
+    const id = A.identity || {}, recent = id.t && Date.now() / 1000 - id.t < 20;
+    if (id.state === 'unsure' || id.state === 'single') return h('div.recbar.row', h('span.warn', '⚠ ', id.message), h('button.sm.primary', { onclick: assignDialog }, 'Pick by hand…'));
+    if (id.state === 'checking') return h('div.dim.small', { style: { margin: '0 0 8px' } }, '⟳ ', id.message);
+    if (id.state === 'swapped' && recent) return h('div.small.ok', { style: { margin: '0 0 8px' } }, '⇄ ', id.message);
+    return null;
+  }
 
   return {
     reconnect,
     update(S) {
-      const list = S.cameras?.list || [];
+      const list = S.cameras?.list || [], A = S.cameras?.assign || {};
+      renderIf(note, 'ident', { s: A.identity?.state, m: A.identity?.message, r: A.identity?.t && Date.now() / 1000 - A.identity.t < 20 }, () => identity(A));
       fps = S.cameras?.stream?.fps || 10;
       const now = list.map((c) => c.name);
       if (now.join() !== names.join()) {
@@ -74,7 +116,8 @@ export function mountCams(panel, ctx) {
       for (const c of list) {
         const t = tiles[c.name]; info[c.name] = c;
         const size = c.size ? `${c.size[0]}×${c.size[1]}` : '—';
-        t.tag.textContent = `${c.name} · ${size} · ${c.stream_fps ? fix(c.stream_fps, 0) + ' fps' : 'idle'}`;
+        const dev = A.cams?.[c.name] != null ? ` · ${short(A.cams[c.name])}` : '';
+        t.tag.textContent = `${c.name}${dev} · ${size} · ${c.stream_fps ? fix(c.stream_fps, 0) + ' fps' : 'idle'}`;
         const msg = paused ? 'paused' : !c.live ? (c.age_s == null ? 'no frames yet' : `stale · last frame ${fix(c.age_s, 1)} s ago`) : '';
         t.over.textContent = msg; t.wrap.classList.toggle('stale', !!msg);
       }

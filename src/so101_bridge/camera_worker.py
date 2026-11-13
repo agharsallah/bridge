@@ -23,18 +23,21 @@ MAX_READ_FAILURES = 30      # consecutive read() misses before the child gives u
 NOT_CONNECTED = -1.0        # stamp value the child sets when the camera it was asked for is not connected
 
 
-def _run(index, width, height, fps, shm_name, stamp, lock, stop):
+def _run(index, exclude, prefer, uid, width, height, fps, shm_name, stamp, lock, stop):
     """Child process: open the camera, copy every frame into shared memory, exit when the stream dies.
 
     ``index`` may be a ``"model#n"`` selector (see camera_ids): it is resolved here, in this fresh process, so
-    the device list is current — and if that camera is absent nothing is opened (never another device)."""
+    the device list is current — and if that camera is absent nothing is opened (never another device).
+    ``exclude``: device uids other cameras already use; ``prefer``: the uid it had before a drop. The uid
+    opened is written back into ``uid``."""
     import cv2
 
-    from .camera_ids import resolve
-    found = resolve(index)
+    from .camera_ids import pick
+    found = pick(index, exclude=exclude, prefer=prefer)
     if found is None:
         stamp.value = NOT_CONNECTED; return
-    cap = cv2.VideoCapture(found)
+    uid.value = found[1].encode()[:79]
+    cap = cv2.VideoCapture(found[0])
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, fps)
     shm = shared_memory.SharedMemory(name=shm_name)
@@ -69,19 +72,27 @@ class WorkerCamera:
     def is_connected(self):
         return self._proc is not None and self._proc.is_alive()
 
-    def connect(self):
+    @property
+    def uid(self):
+        """The device uid this camera opened ("" before it did, or for a raw index the listing did not show)."""
+        u = getattr(self, "_uid", None)
+        return u.value.decode() if u is not None else ""
+
+    def connect(self, exclude=(), prefer=""):
+        """Start the child; ``exclude``: device uids other cameras use; ``prefer``: the uid it had before."""
         self._shm = shared_memory.SharedMemory(create=True, size=self.width * self.height * 3)
         self._buf = np.ndarray((self.height, self.width, 3), dtype=np.uint8, buffer=self._shm.buf)
         self._stamp = self._ctx.Value("d", 0.0); self._lock = self._ctx.Lock(); self._stop = self._ctx.Event()
+        self._uid = self._ctx.Array("c", 80)
         self._proc = self._ctx.Process(target=_run, name=f"cam-{self.name}", daemon=True,
-                                       args=(self.index, self.width, self.height, self.fps,
+                                       args=(self.index, tuple(exclude), prefer, self._uid, self.width, self.height, self.fps,
                                              self._shm.name, self._stamp, self._lock, self._stop))
         self._proc.start()
         deadline = time.time() + self.warmup_s
         while time.time() < deadline and self._proc.is_alive():
             if self._stamp.value > 0: return
             time.sleep(0.05)
-        why = ("is not connected (no such camera on the bus)" if self._stamp.value == NOT_CONNECTED
+        why = ("is not connected (no free camera of that kind on the bus)" if self._stamp.value == NOT_CONNECTED
                else "exited" if not self._proc.is_alive() else f"no frame within {self.warmup_s:.0f} s")
         self.disconnect()
         raise ConnectionError(f"{self} {why}")

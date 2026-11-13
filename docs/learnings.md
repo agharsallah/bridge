@@ -1,9 +1,10 @@
 # SO-101 follower — control bridge: what we learned (2026-09-12)
 
 Setup: MacBook Pro (Apple Silicon), lerobot 0.6.2 (uv venv, Python 3.12), SO-101 follower on
-`/dev/cu.usbmodem5A460836731`, calibration id `my_follower`, cameras: OpenCV index 0 = overhead ("top"),
-index 1 = gripper ("wrist"), both Innomaker U20CAM 1080p (indices can swap after re-plugging: check the
-dashboard). Bridge: `uv run so101-bridge` from the repository root, dashboard http://localhost:8765.
+`/dev/cu.usbmodem5A460836731`, calibration id `my_follower`, cameras: overhead ("top") and gripper ("wrist"),
+both Innomaker U20CAM 1080p with the same USB serial. They are picked by model and position, not by a fixed
+index (see "Cameras: two identical Innomakers" at the end). Bridge: `uv run so101-bridge` from the repository
+root, dashboard http://localhost:8765.
 
 ## Result
 First fully autonomous pick-and-place succeeded at 18:27 (AUTO PICK): visual servo to the brick, descent by
@@ -341,3 +342,51 @@ What broke and the fix:
 
 Result: 2.Nc3 (b1→c3) played by the arm from rest and back, verified by the camera at rest (b1 empty,
 c3 occupied). Pick offset ended at [-0.7, -0.3] cm after the operator's step-mode corrections.
+
+## Cameras: two identical Innomakers (2026-11-12/13)
+
+Symptoms over two days: the laptop camera shown as "wrist", top and wrist swapped between page loads, the
+wrist failing to start about 15 times in a row, OBS shown as "top", and finally both tiles showing the tower.
+Each fix taught something:
+
+- **OpenCV numbers cameras after sorting them by AVFoundation `uniqueID`** (`cap_avfoundation_mac.mm`:
+  `sortedArrayUsingComparator … uniqueID compare`). The raw `devicesWithMediaType` order differs, and even flips
+  after a camera is opened in the same process. Any listing used to choose an index must be sorted the same way
+  (`camera_ids.devices`). Not sorting looked like "the IDs are random", and it was the root of the earlier
+  confusion.
+- **A plain index is fragile.** When one camera drops off the bus, or the OBS virtual camera sorts in between,
+  another device slides into its slot. So `CAMS` uses `"model#n"`, which counts only devices of that model:
+  the laptop and OBS can never be picked.
+- **Identical cameras share one serial (`SN0001`).** The `uniqueID` (`0x21200000c456366`, …) encodes only the
+  USB location (`0x212` = hub port 2). Pinning by uniqueID works until a cable moves, and then the views swap
+  silently. Nothing in USB or AVFoundation tells the two apart.
+- **What does tell them apart: motion.** While the arm moves, the wrist view changes everywhere; the tower
+  only sees the arm cross part of its view. `camera_identity.Vote` sums thumbnail changes (48×27 grayscale,
+  5 Hz, only while a joint moves ≥ 1.5°). On recorded takes, single rounds were sometimes fooled by hands or
+  falling bricks in the tower view. Rounds of 20 samples, a 1.5× margin and **two agreeing rounds** gave no
+  wrong verdict. After 6 rounds without agreement it gives up and asks the operator; it never guesses.
+  Comparing against stored reference views did not work: a day later the scene had changed (balloons gone,
+  paper down) and both orders looked equally unlike.
+- **Two cameras must never share a device.** With one twin unplugged, positions shift: "wrist" took the only
+  Innomaker, the other flickered back for a moment, and "top" landed on the same device. The bridge now passes
+  the uids other cameras hold as `exclude` to the camera's child process. The child reports the uid it opened,
+  and attaching is serialised. A camera back from a drop prefers its previous port.
+- **Verify by looking, not by listing.** Grab a frame per index and look at it (`cv2.VideoCapture(i)` in a
+  fresh process): the jaws close-up is the wrist. Every wrong conclusion above came from trusting a listing.
+- **The hand choice wins.** **Assign…** (any device, any camera) and **⇄ Swap** are saved to
+  `config/settings.json`. The identity check then stands down for that reconnect, and `CAM_AUTO_ID` switches
+  it off for good.
+- **A flaky camera is a cable or port problem.** The `0x212` camera dropped repeatedly. In the drawing take
+  the wrist view is black for about a third of the time. Reseat it or move it off the hub before blaming
+  software.
+
+## Sharing a take (2026-11-13)
+
+- Lab takes are one wide clip (tower | wrist, 960×540 each, 10 fps). Side by side they become tiny on a phone.
+  **Stacked** (`vstack`) each view keeps its full width, and 1080×1216 (8:9) is within X/Twitter's accepted
+  ratios (1:2.39 … 2.39:1).
+- Speed with `setpts=PTS*target/duration`, then `fps=30`. The 10 fps source is then shown faster, with no
+  invented frames. H.264 high profile, `yuv420p` and `+faststart` are what X accepts without re-encoding
+  problems. The recipe is in the README ("Sharing a take").
+- Lab recordings are mpeg4 at roughly 1 MB/10 s. For the README a 720-wide CRF 26 copy is about 2 MB a minute.
+

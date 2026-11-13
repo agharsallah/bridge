@@ -14,6 +14,8 @@ PORT = "/dev/cu.usbmodem5A460836731"
 ROBOT_ID = "my_follower"
 CAMS = {"top": 1, "wrist": 0}   # name -> OpenCV index, or "model#n" (n-th camera of that model): see camera_ids.py
 CAM_W, CAM_H, CAM_FPS = 1920, 1080, 30
+CAM_ON_ARM = "wrist"   # the camera mounted on the arm: tells it apart from an identical fixed twin (camera_identity)
+CAM_AUTO_ID = True     # after a reconnect, check by arm motion that CAM_ON_ARM is the camera on the arm
 CAM_SIZE = {"wrist": (1280, 720)}   # per-camera capture size. Only the board reader wants the full frame,
                                     # and it reads the overhead camera; every wrist view is resized to
                                     # FRAME_W x FRAME_H before anything looks at it, so 1080p there is waste.

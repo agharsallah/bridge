@@ -146,11 +146,21 @@ table guard, tool guard). `goto_far` already splits big moves into ≤10° steps
 - The template never analyses pixels. Detection, overlays and calibration belong to *your* lab, or to a
   model that consumes the frames.
 - Which device is which camera: `settings.CAMS` names each one as `"model#n"`, the n-th camera of that
-  model in OpenCV order (`{"top": "Innomaker#1", "wrist": "Innomaker#0"}`). Other cameras (laptop, OBS)
-  are never opened, and a missing camera shows as missing. The two Innomakers share one USB serial, so
-  nothing in software tells them apart: if a replug brings them back swapped, press **⇄ Swap** in the
-  camera panel (action `cameras_swap`, saved to `config/settings.json`). To list the connected devices, run
-  `uv run python -m so101_bridge.camera_ids`.
+  model in OpenCV order (OpenCV sorts devices by uniqueID): `{"top": "Innomaker#1", "wrist": "Innomaker#0"}`.
+  Other cameras (laptop, OBS) are never opened, and a missing camera shows as missing. Two cameras never
+  share a device: one that is already taken is skipped. A camera coming back from a USB drop returns to its
+  own port first.
+  - The two Innomakers share one USB serial, so only the port tells them apart. After a (re)connect,
+    `camera_identity` watches which view changes while the arm moves. The camera named by
+    `settings.CAM_ON_ARM` ("wrist") must be that one; otherwise the two are swapped and saved to
+    `config/settings.json`. Any USB ports work. It needs a few seconds of arm motion, and an unclear result
+    changes nothing.
+  - If the check cannot decide, or only one of the two is connected, the camera panel asks you to pick by hand.
+  - **Assign…** in the camera panel (actions `cameras_devices` / `cameras_assign`) chooses the device for each
+    camera at any time, any device included. Each option shows the device's index, name and USB port, and
+    each tile shows the device it uses. A checkbox turns the automatic check on or off (`CAM_AUTO_ID`).
+    **⇄ Swap** (`cameras_swap`) flips the two. A choice made by hand is kept as you set it.
+  - To list the connected devices, run `uv run python -m so101_bridge.camera_ids`.
 
 ## 5. Hooking a model or an LLM
 - **Tools**: build them from `GET /<lab>/actions`. Each entry has `name`, `description`, `params`, `moves`

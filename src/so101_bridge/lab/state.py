@@ -125,7 +125,7 @@ def build(lab, ctrl, frames):
             "guards": guards_view(st, side, events, ctrl.floor, mounted), "points": points, "rest": rest, "config": view,
             "tool": {"mounted": mounted, "defined": defined, "pending": any(c["path"].split(".")[0] == "tool" for c in view["pending"]),
                      "saved": view["saved"].get("tool"), "margin_min_cm": tool_mod.MARGIN_MIN_CM},
-            "cameras": {"list": frames.info(ctrl), "stream": eff.get("cameras") or {}},
+            "cameras": {"list": frames.info(ctrl), "stream": eff.get("cameras") or {}, "assign": _camera_assignment()},
             "video": {"recording": video, "dir": str(lab.video_dir()), "raw": bool((eff.get("video") or {}).get("raw")),
                       "files": lab.videos()},
             **{k: fn(lab, ctrl, st) for k, fn in lab.extra_state.items()}}
@@ -150,3 +150,11 @@ def observe(lab, ctrl, frames, images=False, width=640):
     if images:
         out["images"] = [g for g in (frames.grab_b64(ctrl, c, width) for c in settings.CAMS) if g]
     return out
+
+
+def _camera_assignment():
+    try:
+        from ..hardware import camera_assignment  # lazy: the daemon's camera bookkeeping, absent in tests
+        return camera_assignment()
+    except Exception:
+        return {}
