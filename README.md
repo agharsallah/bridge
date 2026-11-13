@@ -19,13 +19,13 @@ to do when something goes wrong.
 
 ## Demos
 
-| Balloon lab — aim by wrist camera, thrust, pop | Jenga lab — push one brick out of row 11 |
-| --- | --- |
-| <video src="docs/videos/20261112_164353_pop_orange3.mp4" controls muted width="100%"></video> | <video src="docs/videos/jenga_row11_take4_x.mp4" controls muted width="100%"></video> |
-| [`pop_orange3.mp4`](docs/videos/20261112_164353_pop_orange3.mp4) — the needle is lined up on the orange balloon from the wrist image, then driven along a straight horizontal line and stopped the moment the orange disappears | [`jenga_row11_take4_x.mp4`](docs/videos/jenga_row11_take4_x.mp4) — stick mounted as a tool, camera line-up, a 4.5 cm push drops the middle brick out the back, stick pulled out |
+| Balloon lab — aim by wrist camera, thrust, pop | Jenga lab — push one brick out of row 11 | Drawing lab — جمعة مباركة in Kufic, with a pen |
+| --- | --- | --- |
+| <video src="docs/videos/20261112_164353_pop_orange3.mp4" controls muted width="100%"></video> | <video src="docs/videos/jenga_row11_take4_x.mp4" controls muted width="100%"></video> | <video src="docs/videos/draw_jumua_x.mp4" controls muted width="100%"></video> |
+| [`pop_orange3.mp4`](docs/videos/20261112_164353_pop_orange3.mp4) — the needle is lined up on the orange balloon from the wrist image, then driven along a straight horizontal line and stopped the moment the orange disappears | [`jenga_row11_take4_x.mp4`](docs/videos/jenga_row11_take4_x.mp4) — stick mounted as a tool, camera line-up, a 4.5 cm push drops the middle brick out the back, stick pulled out | [`draw_jumua_x.mp4`](docs/videos/draw_jumua_x.mp4) — pen taped to the jaw at 45°, paper height measured by touch, outlines drawn right to left; 4.5 min sped up to 1 min, tower view above the wrist view (black where the wrist camera dropped out) |
 
-Both runs are fully guarded: every move is a request to the control loop, with the tool tip protected by the
-table guard. See [Labs](#labs) below.
+All runs are fully guarded: every move is a request to the control loop, with the tool tip protected by the
+table guard. See [Labs](#labs) below; to cut a take like these for sharing, see [Sharing a take](#sharing-a-take).
 
 ## Screenshots
 
@@ -49,6 +49,7 @@ in once the daemon is running.
 | [`docs/motion-log-pick-place.md`](docs/motion-log-pick-place.md) | run-by-run log of pick-and-place attempts |
 | [`docs/lab.md`](docs/lab.md) | the lab template: anatomy, actions, moving the arm, staging, panels, cameras, model/LLM hooks, tests — read before starting a new experiment |
 | [`docs/jenga.md`](docs/jenga.md) | the Jenga lab: setup, how a turn is judged, calibration numbers and what the sessions taught |
+| [`docs/draw.md`](docs/draw.md) | the drawing lab: pen at 45°, measuring the paper by touch, built-in drawings, what is still open |
 
 ## Helpers
 
@@ -57,6 +58,7 @@ in once the daemon is running.
 | `make run` (`uv run so101-bridge`) | start the daemon; dashboard on http://localhost:8765 |
 | `make test` (`uv run pytest -q`) | unit tests, no hardware needed |
 | `make lab NAME=<name> TITLE="..." DESC="..."` | scaffold a new lab on the template, served at `/<name>` (see `docs/lab.md`) |
+| `uv run python -m so101_bridge.camera_ids` | list the connected cameras in OpenCV order: index, name, USB port id and the `"model#n"` selector for `CAMS` |
 | `make lint` / `make fmt` | `ruff check` / `ruff check --fix` |
 | `make stop` (`touch ESTOP`) | freeze the arm right now, from any terminal |
 | `make resume` (`rm -f ESTOP`) | clear the emergency stop |
@@ -177,11 +179,38 @@ and anything that releases torque or surprises the operator is confirm-gated.
 | --- | --- |
 | `/balloon` | finds the orange balloon in the wrist camera, aims the needle by pan, thrusts on a straight line until the orange disappears, retracts. Every pop is filmed and saved with its plan and telemetry (`var/lab/balloon_runs/`) and can be replayed, optionally shifted |
 | `/jenga` | with a stick mounted as a tool, plays a turn: approach, camera line-up, push the middle brick of one row out of the back, pull out. A 3-D tower view tracks which bricks are in, pushed or out. Setup and calibration in `docs/jenga.md` |
+| `/draw` | with a pen taped to the jaw, draws a built-in or hand-sketched drawing on a sheet: measures the paper height by touch, lands on each line, traces the tip and films the run (`var/lab/draw_runs/`). Details in `docs/draw.md` |
 
 ```bash
 make lab NAME=pour TITLE="Pouring lab" DESC="pour 50 ml from cup A into cup B"
 make run && open http://localhost:8765/pour
 ```
+
+### Cameras
+
+Both cameras are the same model (Innomaker U20CAM 1080p) with the same USB serial, so nothing but the USB
+port tells them apart. `settings.CAMS` therefore names them as `"Innomaker#n"`, the n-th of that model in
+OpenCV's order. The laptop and OBS cameras are never opened, and two cameras never share a device. After a
+reconnect the bridge checks which view moves with the arm and swaps them if needed, so any ports work. If it
+cannot tell, the camera panel asks you to pick; **Assign…** and **⇄ Swap** let you choose by hand at any time.
+Why: [`docs/learnings.md`](docs/learnings.md#cameras-two-identical-innomakers-2026-11-1213).
+
+### Sharing a take
+
+Lab takes are saved as one wide clip (`var/videos/lab/`): tower on the left, wrist on the right, 960×540 each.
+For X/Twitter, stack the two views (each stays full width, so both stay legible) and speed the take up to about a
+minute. 8:9 is within X's accepted ratios and takes more of the timeline than a wide clip:
+
+```bash
+IN=var/videos/lab/<take>.mp4; OUT=${IN%.mp4}_x.mp4; SECS=60
+DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$IN")
+ffmpeg -i "$IN" -filter_complex "[0:v]crop=960:540:0:0[t];[0:v]crop=960:540:960:0[w];\
+[t][w]vstack=inputs=2,setpts=PTS*$SECS/$DUR,fps=30,scale=1080:1216:flags=lanczos,setsar=1[v]" \
+  -map "[v]" -an -c:v libx264 -preset slow -crf 20 -profile:v high -level 4.1 -pix_fmt yuv420p -movflags +faststart "$OUT"
+```
+
+For the README, a lighter copy is enough: `ffmpeg -i "$OUT" -vf scale=720:-2 -c:v libx264 -crf 26 -pix_fmt yuv420p
+-movflags +faststart -an docs/videos/<name>.mp4` (about 2 MB a minute).
 
 ## Development
 
