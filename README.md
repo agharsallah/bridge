@@ -21,8 +21,11 @@ to do when something goes wrong.
 
 | Balloon lab — aim by wrist camera, thrust, pop | Jenga lab — push one brick out of row 11 | Drawing lab — جمعة مباركة in Kufic, with a pen |
 | --- | --- | --- |
-| <video src="docs/videos/20261112_164353_pop_orange3.mp4" controls muted width="100%"></video> | <video src="docs/videos/jenga_row11_take4_x.mp4" controls muted width="100%"></video> | <video src="docs/videos/draw_jumua_x.mp4" controls muted width="100%"></video> |
-| [`pop_orange3.mp4`](docs/videos/20261112_164353_pop_orange3.mp4) — the needle is lined up on the orange balloon from the wrist image, then driven along a straight horizontal line and stopped the moment the orange disappears | [`jenga_row11_take4_x.mp4`](docs/videos/jenga_row11_take4_x.mp4) — stick mounted as a tool, camera line-up, a 4.5 cm push drops the middle brick out the back, stick pulled out | [`draw_jumua_x.mp4`](docs/videos/draw_jumua_x.mp4) — pen taped to the jaw at 45°, paper height measured by touch, outlines drawn right to left; 4.5 min sped up to 1 min, tower view above the wrist view (black where the wrist camera dropped out) |
+| [![balloon lab](docs/img/balloon.gif)](#labs) | [![jenga lab](docs/img/jenga.gif)](docs/jenga.md) | [![drawing lab](docs/img/draw.gif)](docs/draw.md) |
+| The needle is lined up on the orange balloon from the wrist image, then driven along a straight horizontal line and stopped the moment the orange disappears (2× speed) | Stick mounted as a tool, camera line-up, a 4.5 cm push drops the middle brick out the back, stick pulled out (1.5×) | Pen taped to the jaw at 45°, paper height measured by touch, outlines drawn right to left (4.5 min in 10 s; black where the wrist camera dropped out) |
+
+Tower view above, wrist view below. The full-length takes stay out of the repository (`docs/videos/` is ignored);
+every take is in `var/videos/lab/` on the machine that recorded it.
 
 All runs are fully guarded: every move is a request to the control loop, with the tool tip protected by the
 table guard. See [Labs](#labs) below; to cut a take like these for sharing, see [Sharing a take](#sharing-a-take).
@@ -79,7 +82,7 @@ dashboard **RESUME** button — restarting the bridge never drops torque, the ar
 | `config/` | what you may edit: `limits.json`, `rest.json`, `floor_points.json`, `waypoints.json`, and optional overlays `settings.json` (any constant in `settings.py`, see `settings.example.json`) and `poses.json` (taught paths, see `poses.example.json`) |
 | `var/` | runtime only, never committed: `bridge.log`, `state.json`, `cmd/`, `done/`, `recordings/`, camera snapshots |
 | `scripts/` | double-clickable `STOP` / `RESUME` / `RELEASE` for the operator |
-| `docs/` | operations manual, learnings, machine-readable `metadata.json`, decision log, lab guides; `docs/videos/` holds the demo clips |
+| `docs/` | operations manual, learnings, machine-readable `metadata.json`, decision log, lab guides; `docs/img/` holds screenshots and the demo GIFs (`docs/videos/` is ignored) |
 | `var/videos/lab/`, `var/lab/<lab>_runs/` | every lab take, filmed and logged (plan, paths sent, telemetry) |
 | `paintings/` | compiled painting programs (`<name>.json`): joint poses for every step, replayable without model or cameras |
 | `puzzles/` | chess puzzles: a FEN, which colour the robot plays and the solution line |
@@ -209,8 +212,16 @@ ffmpeg -i "$IN" -filter_complex "[0:v]crop=960:540:0:0[t];[0:v]crop=960:540:960:
   -map "[v]" -an -c:v libx264 -preset slow -crf 20 -profile:v high -level 4.1 -pix_fmt yuv420p -movflags +faststart "$OUT"
 ```
 
-For the README, a lighter copy is enough: `ffmpeg -i "$OUT" -vf scale=720:-2 -c:v libx264 -crf 26 -pix_fmt yuv420p
--movflags +faststart -an docs/videos/<name>.mp4` (about 2 MB a minute).
+For the README, use a short looping GIF instead of a video, so the repository stays small to clone (videos go
+in `docs/videos/`, which is ignored). Speed it up to about 10 s; at 320 px, 8 fps and 64 colours, with a light
+denoise (camera noise is what makes GIFs big), that is about 1–2 MB:
+
+```bash
+SPEED=6   # 60 s -> 10 s
+ffmpeg -i "$OUT" -filter_complex "[0:v]setpts=PTS/$SPEED,fps=8,scale=320:-2:flags=lanczos,hqdn3d=4:3:6:4,split[a][b];\
+[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
+  -loop 0 docs/img/<name>.gif
+```
 
 ## Development
 

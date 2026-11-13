@@ -388,5 +388,11 @@ Each fix taught something:
 - Speed with `setpts=PTS*target/duration`, then `fps=30`. The 10 fps source is then shown faster, with no
   invented frames. H.264 high profile, `yuv420p` and `+faststart` are what X accepts without re-encoding
   problems. The recipe is in the README ("Sharing a take").
-- Lab recordings are mpeg4 at roughly 1 MB/10 s. For the README a 720-wide CRF 26 copy is about 2 MB a minute.
+- Lab recordings are mpeg4 at roughly 1 MB/10 s. **The README shows GIFs, not videos**: three mp4 demos (13 MB)
+  made every clone slow, and GitHub does not reliably play repository mp4s inline in a README.
+  - GIF size is driven by camera noise. The first attempt (360 px, 10 fps, 128 colours) came out *larger* than
+    the videos: 21 MB.
+  - 320 px, 8 fps, 64 colours, `hqdn3d` denoise, a `stats_mode=diff` palette and `diff_mode=rectangle` gave
+    0.9–2.3 MB per demo, sped up to under 10 s.
+  - `docs/videos/` is ignored, so full takes stay on the recording machine (`var/videos/lab/`).
 

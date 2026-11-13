@@ -15,3 +15,6 @@ __pycache__/
 .idea/
 .vscode/
 _to_delete/
+
+# Full-length demo takes: the README shows GIFs from docs/img/ (keeps clones small)
+docs/videos/
